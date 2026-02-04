@@ -1,0 +1,28 @@
+services:
+  freqtrade:
+    # SỬA LẠI TÊN IMAGE CHÍNH XÁC:
+    image: freqtradeorg/freqtrade:develop_freqai
+    restart: unless-stopped
+    container_name: freqtrade_local_dev
+    ports:
+      - "8080:8080"
+    volumes:
+      - "./user_data:/freqtrade/user_data"
+      - "./freqtrade:/freqtrade/freqtrade"
+    
+    # Cấu hình GPU Passthrough cho WSL2
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    
+    command: >
+      trade
+      --logfile /freqtrade/user_data/logs/freqtrade.log
+      --db-url sqlite:////freqtrade/user_data/tradesv3.sqlite
+      --config /freqtrade/user_data/config_freqai.json
+      --strategy WolfStrategy
+      --freqaimodel XGBoostRegressor
