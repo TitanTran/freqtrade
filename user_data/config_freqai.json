@@ -2,6 +2,8 @@
     "max_open_trades": 3,
     "initial_state": "running",
     "stoploss": -0.10,
+    "trailing_stop": false,
+    "use_custom_stoploss": true,
     "minimal_roi": {
         "0": 100
     },
@@ -10,7 +12,7 @@
     "tradable_balance_ratio": 0.99,
     "fiat_display_currency": "USD",
     "dry_run": true,
-    "timeframe": "1h",
+    "timeframe": "5m",
     "freqai": {
         "enabled": true,
         "freqaimodel": "XGBoostRegressor",
@@ -21,6 +23,8 @@
         "identifier": "wolf_ai_v1",
         "feature_parameters": {
             "include_timeframes": [
+                "5m",
+                "15m",
                 "1h"
             ],
             "include_corr_pairlist": [],

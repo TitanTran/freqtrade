@@ -55,18 +55,54 @@ docker compose -f docker-compose.dev.yml logs -f
 ### 2. Dữ liệu & Training
 
 **Tải dữ liệu lịch sử (Bắt buộc trước khi Backtest):**
+```powershell
+docker compose -f docker-compose.dev.yml run --rm freqtrade download-data --timerange 20251201-20260205 -t 5m 15m 1h --config user_data/config_freqai.json --erase
+```
 
-```bash
-docker compose -f docker-compose.dev.yml run --rm freqtrade download-data --days 30 -t 5m 15m 1h --config user_data/config_freqai.json
-
+Xóa model lỗi (Lần nữa cho chắc) Do lần chạy trước bị crash giữa chừng, file model có thể bị hỏng (corrupted pipeline).
+```powershell
+Remove-Item -Recurse -Force user_data/models/wolf_ai_v1
 ```
 
 **Chạy Backtesting (Kiểm thử chiến thuật):**
+```powershell
+docker compose -f docker-compose.dev.yml run --rm freqtrade backtesting --strategy WolfStrategy --config user_data/config_freqai.json --timerange 20260101-20260201 --freqaimodel XGBoostRegressor
+```
 
-```bash
-docker compose -f docker-compose.dev.yml run --rm freqtrade backtesting --strategy WolfStrategy --config user_data/config_freqai.json --timerange 20260101-20260201
+### PHẦN 3: Cách xuất Log ra file (Không cần Copy/Paste)
+
+Là một kỹ sư, chúng ta không nên bôi đen copy thủ công từ Terminal. Hãy dùng kỹ thuật **Redirection (Chuyển hướng luồng ra)** của Linux/Docker.
+
+#### Cách 1: Ghi log Backtest ra file riêng (Khuyên dùng)
+
+Khi chạy lệnh backtest, bạn thêm ký tự `>` và tên file vào cuối câu lệnh.
+
+```powershell
+docker compose -f docker-compose.dev.yml run --rm freqtrade backtesting --strategy WolfStrategy --config user_data/config_freqai.json --timerange 20260101-20260201 --freqaimodel XGBoostRegressor > ket_qua_backtest.txt
 
 ```
+
+* **Kết quả:** Màn hình sẽ không hiện gì cả (hoặc chỉ hiện lỗi), toàn bộ bảng báo cáo đẹp đẽ sẽ được lưu vào file `ket_qua_backtest.txt` nằm ngay thư mục hiện tại. Bạn chỉ cần mở file đó lên xem.
+
+#### Cách 2: Lấy log của Bot đang chạy (Live/Dry-run)
+
+Nếu bot đang chạy ngầm (`up -d`), bạn muốn xuất toàn bộ log từ lúc khởi động ra file:
+
+```powershell
+docker compose -f docker-compose.dev.yml logs > full_log_bot.txt
+
+```
+
+#### Cách 3: Theo dõi Log và Ghi ra file cùng lúc (Tee)
+
+Nếu bạn dùng PowerShell, lệnh `Tee-Object` giúp bạn vừa nhìn thấy trên màn hình, vừa lưu vào file:
+
+```powershell
+# Lệnh ví dụ
+docker compose ... backtesting ... | Tee-Object -FilePath "log_bao_cao.txt"
+
+```
+
 
 ### 3. Giao diện (FreqUI)
 
