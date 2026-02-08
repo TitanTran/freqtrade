@@ -1,8 +1,12 @@
 {
     "max_open_trades": 3,
+    "startup_candle_count": 7000,
     "initial_state": "running",
-    "stoploss": -0.05,
-    "trailing_stop": false,
+    "stoploss": -0.1,
+    "trailing_stop": true,
+    "trailing_stop_positive": 0.01,
+    "trailing_stop_positive_offset": 0.02,
+    "trailing_only_offset_is_reached": true,
     "use_custom_stoploss": true,
     "minimal_roi": {
         "0": 100
@@ -20,7 +24,7 @@
         "train_period_days": 15,
         "backtest_period_days": 7,
         "live_retrain_hours": 1,
-        "identifier": "wolf_ai_smart_v1",
+        "identifier": "wolf_ai_king_btc_v1",
         "feature_parameters": {
             "include_timeframes": [
                 "5m",
@@ -85,8 +89,9 @@
             "enableRateLimit": true
         },
         "pair_whitelist": [
-            "SUI/USDT:USDT",
-            "BTC/USDT:USDT"
+            "BTC/USDT:USDT",
+            "ETH/USDT:USDT",
+            "BNB/USDT:USDT"
         ]
     },
     "pairlists": [
