@@ -1,16 +1,19 @@
 services:
   freqtrade:
-    # SỬA LẠI TÊN IMAGE CHÍNH XÁC:
     image: freqtradeorg/freqtrade:develop_freqai
     restart: unless-stopped
     container_name: freqtrade_local_dev
     ports:
       - "8080:8080"
+    # --- THÊM PHẦN NÀY ---
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    # ---------------------
     volumes:
       - "./user_data:/freqtrade/user_data"
       - "./freqtrade:/freqtrade/freqtrade"
     
-    # Cấu hình GPU Passthrough cho WSL2
     deploy:
       resources:
         reservations:
