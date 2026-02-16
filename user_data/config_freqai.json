@@ -1,22 +1,39 @@
 {
     "max_open_trades": 3,
-    "startup_candle_count": 7000,
-    "initial_state": "running",
-    "stoploss": -0.1,
-    "trailing_stop": true,
-    "trailing_stop_positive": 0.01,
-    "trailing_stop_positive_offset": 0.02,
-    "trailing_only_offset_is_reached": true,
-    "use_custom_stoploss": true,
-    "minimal_roi": {
-        "0": 100
-    },
     "stake_currency": "USDT",
     "stake_amount": "unlimited",
     "tradable_balance_ratio": 0.99,
     "fiat_display_currency": "USD",
-    "dry_run": true,
+    "dry_run": false,
     "timeframe": "5m",
+    "cancel_open_orders_on_exit": false,
+    "unfilledtimeout": {
+        "entry": 10,
+        "exit": 30
+    },
+    "exchange": {
+        "name": "binance",
+        "key": "ĐIỀN_KEY_MỚI_VÀO_ĐÂY",
+        "secret": "ĐIỀN_SECRET_MỚI_VÀO_ĐÂY",
+        "ccxt_config": {
+            "enableRateLimit": true
+        },
+        "ccxt_async_config": {
+            "enableRateLimit": true,
+            "rateLimit": 200
+        },
+        "pair_whitelist": [
+            "BTC/USDT:USDT",
+            "ETH/USDT:USDT",
+            "BNB/USDT:USDT"
+        ],
+        "pair_blacklist": []
+    },
+    "pairlists": [
+        {
+            "method": "StaticPairList"
+        }
+    ],
     "freqai": {
         "enabled": true,
         "freqaimodel": "XGBoostRegressor",
@@ -56,52 +73,18 @@
             "learning_rate": 0.1
         }
     },
+    "telegram": {
+        "enabled": true,
+        "token": "8457509124:AAFFDpLDiPBryFgD4unX4CirearHxHQL_QA",
+        "chat_id": "1761282679"
+    },
     "api_server": {
         "enabled": true,
         "listen_ip_address": "0.0.0.0",
         "listen_port": 8080,
         "username": "freqtrader",
-        "password": "SuperSecurePassword",
-        "jwt_secret_key": "supersecretkey"
-    },
-    "entry_pricing": {
-        "price_side": "other",
-        "use_order_book": true,
-        "order_book_top": 1,
-        "price_last_balance": 0.0,
-        "check_depth_of_market": {
-            "enabled": false,
-            "bids_to_ask_delta": 1
-        }
-    },
-    "exit_pricing": {
-        "price_side": "other",
-        "use_order_book": true,
-        "order_book_top": 1
+        "password": "SuperSecurePassword"
     },
     "trading_mode": "futures",
-    "margin_mode": "isolated",
-    "exchange": {
-        "name": "binance",
-        "key": "",
-        "secret": "",
-        "ccxt_config": {
-            "enableRateLimit": true
-        },
-        "pair_whitelist": [
-            "BTC/USDT:USDT",
-            "ETH/USDT:USDT",
-            "BNB/USDT:USDT"
-        ]
-    },
-    "pairlists": [
-        {
-            "method": "StaticPairList"
-        }
-    ],
-    "telegram": {
-        "enabled": true,
-        "token": "8457509124:AAFFDpLDiPBryFgD4unX4CirearHxHQL_QA",
-        "chat_id": "1761282679"
-    }
+    "margin_mode": "isolated"
 }
