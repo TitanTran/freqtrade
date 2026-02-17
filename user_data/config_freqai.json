@@ -4,17 +4,32 @@
     "stake_amount": "unlimited",
     "tradable_balance_ratio": 0.99,
     "fiat_display_currency": "USD",
-    "dry_run": false,
+    "dry_run": true,
     "timeframe": "5m",
     "cancel_open_orders_on_exit": false,
     "unfilledtimeout": {
         "entry": 10,
         "exit": 30
     },
+    "entry_pricing": {
+        "price_side": "other",
+        "use_order_book": true,
+        "order_book_top": 1,
+        "price_last_balance": 0.0,
+        "check_depth_of_market": {
+            "enabled": false,
+            "bids_to_ask_delta": 1
+        }
+    },
+    "exit_pricing": {
+        "price_side": "other",
+        "use_order_book": true,
+        "order_book_top": 1
+    },
     "exchange": {
         "name": "binance",
-        "key": "ĐIỀN_KEY_MỚI_VÀO_ĐÂY",
-        "secret": "ĐIỀN_SECRET_MỚI_VÀO_ĐÂY",
+        "key": "KEY_GIA_DE_CHAY_HYPEROPT",
+        "secret": "SECRET_GIA_DE_CHAY_HYPEROPT",
         "ccxt_config": {
             "enableRateLimit": true
         },
@@ -41,7 +56,7 @@
         "train_period_days": 15,
         "backtest_period_days": 7,
         "live_retrain_hours": 1,
-        "identifier": "wolf_ai_king_btc_v1",
+        "identifier": "wolf_ai_hyperopt_local",
         "feature_parameters": {
             "include_timeframes": [
                 "5m",
@@ -74,13 +89,13 @@
         }
     },
     "telegram": {
-        "enabled": true,
-        "token": "8457509124:AAFFDpLDiPBryFgD4unX4CirearHxHQL_QA",
-        "chat_id": "1761282679"
+        "enabled": false,
+        "token": "",
+        "chat_id": ""
     },
     "api_server": {
-        "enabled": true,
-        "listen_ip_address": "0.0.0.0",
+        "enabled": false,
+        "listen_ip_address": "127.0.0.1",
         "listen_port": 8080,
         "username": "freqtrader",
         "password": "SuperSecurePassword"

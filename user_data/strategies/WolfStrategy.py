@@ -1,6 +1,6 @@
 import logging
 from functools import reduce
-from freqtrade.strategy import IStrategy, merge_informative_pair
+from freqtrade.strategy import IStrategy, merge_informative_pair, DecimalParameter, IntParameter, CategoricalParameter
 from pandas import DataFrame
 import talib.abstract as ta
 import numpy as np
@@ -12,41 +12,48 @@ logger = logging.getLogger(__name__)
 class WolfStrategy(IStrategy):
     INTERFACE_VERSION = 3
     
-    # 1. KÍCH HOẠT SHORT (Đánh 2 đầu)
+    # 1. CẤU HÌNH CƠ BẢN
     can_short = True 
-
-    # 2. CẤU HÌNH "CẮN SÂU" (DEEP BITE)
     timeframe = "5m"
     
-    # STOPLOSS: Nới rộng ra để tránh bị quét râu trong biến động mạnh
-    stoploss = -0.07  # Chấp nhận lỗ 7% (để đổi lấy cơ hội ăn 10-20%)
-
-    # ROI: Treo cao lên để gồng lãi
-    minimal_roi = {
-        "0": 0.20,       # Lãi 20% mới chốt ngay
-        "60": 0.10,      # Sau 1 tiếng lãi 10% mới chốt
-        "120": 0.05,     # Sau 2 tiếng lãi 5% mới chốt
-        "240": 0.03      # Sau 4 tiếng lãi 3% mới chốt
-    }
-
-    # TRAILING STOP: "Nuôi lớn rồi mới thịt"
+    # 2. KHAI BÁO BIẾN MẶC ĐỊNH (CHO CHẠY LIVE/DRY RUN)
+    # Những số này sẽ được dùng nếu bạn KHÔNG chạy Hyperopt
+    stoploss = -0.05
     trailing_stop = True
-    trailing_stop_positive = 0.015       # Khoảng cách 1.5% (Cho giá rung lắc thoải mái)
-    trailing_stop_positive_offset = 0.03 # Lãi ĐÚNG 3% mới bắt đầu kích hoạt
+    trailing_stop_positive = 0.01
+    trailing_stop_positive_offset = 0.02
     trailing_only_offset_is_reached = True
 
-    # --- ĐÒN BẨY (LEVERAGE) ---
+    # 3. KHAI BÁO KHÔNG GIAN TÌM KIẾM (CHO HYPEROPT)
+    # Đây là những khoảng giá trị mà Hyperopt sẽ thử nghiệm
+    
+    # Tìm Stoploss từ -3% đến -10%
+    stoploss_space = DecimalParameter(-0.10, -0.03, default=-0.05, space='sell', optimize=True)
+    
+    # Tìm Trailing Stop (Offset: 1%-5%, Distance: 0.5%-2%)
+    trailing_stop_positive_offset_space = DecimalParameter(0.01, 0.05, default=0.02, space='sell', optimize=True)
+    trailing_stop_positive_space = DecimalParameter(0.005, 0.02, default=0.01, space='sell', optimize=True)
+
+    # ROI (Mặc định - Hyperopt sẽ tự tìm đè lên cái này nếu bạn bật --spaces roi)
+    minimal_roi = {
+        "0": 0.20,
+        "60": 0.10,
+        "120": 0.05,
+        "240": 0.03
+    }
+
+    # --- ĐÒN BẨY ---
     def leverage(self, pair: str, current_time: datetime, current_rate: float,
                  proposed_leverage: float, max_leverage: float, entry_tag: str, side: str,
                  **kwargs) -> float:
-        return 3.0 # Giữ 3x để an toàn với Stoploss 7%
+        return 3.0
 
     # --- DATA (NHÌN RỘNG 1H) ---
     def informative_pairs(self):
         pairs = self.dp.current_whitelist()
         return [(pair, "1h") for pair in pairs]
 
-    # --- FREQAI (GIỮ NGUYÊN) ---
+    # --- FREQAI ---
     def feature_engineering_expand_all(self, dataframe: DataFrame, period: int, metadata: dict, **kwargs) -> DataFrame:
         dataframe["%-rsi-" + str(period)] = ta.RSI(dataframe, timeperiod=period)
         dataframe["%-mfi-" + str(period)] = ta.MFI(dataframe, timeperiod=period)
@@ -62,8 +69,17 @@ class WolfStrategy(IStrategy):
         )
         return dataframe
 
-    # --- INDICATORS ---
+    # --- INDICATORS & HYPEROPT INJECTION ---
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        
+        # === PHẦN SỬA LỖI QUAN TRỌNG NHẤT ===
+        # Cơ chế "Tiêm thuốc": Nếu đang chạy Hyperopt, lấy giá trị từ Space đè vào biến
+        if self.config['runmode'].value in ('hyperopt', 'backtest'):
+            self.stoploss = self.stoploss_space.value
+            self.trailing_stop_positive = self.trailing_stop_positive_space.value
+            self.trailing_stop_positive_offset = self.trailing_stop_positive_offset_space.value
+        # ====================================
+
         dataframe = self.freqai.start(dataframe, metadata, self)
         
         # 1. Chỉ báo khung 5m

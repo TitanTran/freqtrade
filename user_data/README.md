@@ -157,3 +157,57 @@ docker compose -f docker-compose.dev.yml run --rm freqtrade backtesting --strate
 ```
 
 Chúc bạn khởi đầu mới thành công với **"King BTC"**!
+
+Chào bạn, **Principal Engineer** đây.
+
+Chúng ta đang đối mặt với "Trùm cuối" của lỗi FreqAI. Tôi đã phân tích kỹ log của bạn và tìm ra 2 nguyên nhân cốt lõi:
+
+1. **Lỗi `AttributeError: ... features_in`:** Đây là lỗi **"Thây ma" (Zombie Model)**.
+* Bạn đã từng chạy Training bằng bản `stable` cũ. Nó sinh ra các file model cũ lưu trong thư mục `user_data/models`.
+* Bây giờ bạn chạy bản `develop` mới. Code mới cố gắng đọc file model cũ -> **BẤT TƯƠNG THÍCH** (Do thư viện `datasieve` thay đổi cấu trúc dữ liệu).
+* **Giải pháp:** Phải xóa sạch thư mục Model cũ để Bot train lại từ đầu.
+
+
+2. **Lỗi SUI `NaNs`:** Do dữ liệu SUI bị thiếu phần đầu năm 2026.
+* Log báo: `SUI data starts at 2026-01-30`.
+* Nhưng bạn yêu cầu test từ `2026-01-01`. Bot không có dữ liệu quá khứ để học -> Nó báo lỗi.
+
+
+
+---
+
+### QUY TRÌNH "TẨY TỦY" TOÀN DIỆN (LÀM 1 LẦN LÀ XONG)
+
+Hãy làm chính xác 3 bước này để dọn sạch rác và chạy mượt:
+
+### BƯỚC 1: XÓA THƯ MỤC MODEL CŨ (QUAN TRỌNG NHẤT)
+
+Đây là bước để diệt con "Zombie" gây lỗi `datasieve`.
+Trên Windows, bạn vào thư mục:
+`D:\AI\PYTHON\freqtrade\user_data\models`
+
+👉 **XÓA THẲNG TAY** thư mục có tên `wolf_ai_hyperopt_local` (hoặc xóa sạch cả thư mục `models` cho sạch sẽ).
+
+### BƯỚC 2: TẢI LẠI DATA CHO SUI (VÀ CÁC COIN MỚI)
+
+SUI bị lỗi timeline, nên chúng ta cần tải lại và dùng cờ `--erase` để nó xóa cái cũ tải cái mới chuẩn hơn.
+
+Chạy lệnh này trên PowerShell:
+
+```powershell
+docker compose run --rm freqtrade download-data --pairs SUI/USDT:USDT SOL/USDT:USDT LINK/USDT:USDT --timeframe 5m 1h --timerange 20251201- --erase
+
+```
+
+*(Tôi để timerange từ `20251201` để đảm bảo có đủ dữ liệu cho Bot học trước khi bước vào năm 2026).*
+
+### BƯỚC 3: CHẠY HYPEROPT (VỀ ĐÍCH)
+
+Sau khi xóa model và tải đủ data, chạy lại lệnh Hyperopt. Lần này Bot sẽ Training lại từ con số 0 (sạch sẽ, không lỗi).
+
+```powershell
+docker compose run --rm freqtrade hyperopt --hyperopt-loss SharpeHyperOptLoss --strategy WolfStrategy --spaces roi stoploss trailing --timerange 20260101-20260215 -e 100 -c user_data/config_freqai.json --freqaimodel XGBoostRegressor
+
+```
+
+**Lưu ý:** Quá trình Training lại từ đầu sẽ mất khoảng **15-20 phút** (nhìn dòng `Training...`). Hãy kiên nhẫn, đừng tắt ngang! Chúc mừng bạn, bạn sắp có bộ số vàng rồi! 🛠️🐺🚀
