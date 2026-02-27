@@ -50,6 +50,8 @@ docker compose -f docker-compose.dev.yml down
 ```bash
 docker compose -f docker-compose.dev.yml logs -f
 
+docker compose -f docker-compose.yml logs -f
+
 ```
 
 ### 2. Dữ liệu & Training
@@ -63,7 +65,7 @@ Remove-Item -Recurse -Force user_data/models/*
 
 **Tải dữ liệu lịch sử (Bắt buộc trước khi Backtest):**
 ```powershell
-docker compose -f docker-compose.dev.yml run --rm freqtrade download-data --timerange 20251201-20260205 -t 5m 15m 1h --config user_data/config_freqai.json --erase
+docker compose -f docker-compose.dev.yml run --rm freqtrade download-data --config user_data/config_freqai.json --days 150 --timeframes 5m 15m 1h 1d --erase
 ```
 
 Xóa model lỗi (Lần nữa cho chắc) Do lần chạy trước bị crash giữa chừng, file model có thể bị hỏng (corrupted pipeline).
@@ -211,3 +213,6 @@ docker compose run --rm freqtrade hyperopt --hyperopt-loss SharpeHyperOptLoss --
 ```
 
 **Lưu ý:** Quá trình Training lại từ đầu sẽ mất khoảng **15-20 phút** (nhìn dòng `Training...`). Hãy kiên nhẫn, đừng tắt ngang! Chúc mừng bạn, bạn sắp có bộ số vàng rồi! 🛠️🐺🚀
+
+
+nano user_data/strategies/WolfStrategy.py
