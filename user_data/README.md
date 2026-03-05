@@ -35,6 +35,7 @@ docker compose -f docker-compose.dev.yml up -d
 
 ```bash
 docker compose -f docker-compose.dev.yml restart
+docker compose -f docker-compose.yml restart
 
 ```
 
@@ -63,24 +64,54 @@ Vẫn phải xóa vì lần chạy trước đã tạo ra file rác.
 Remove-Item -Recurse -Force user_data/models/*
 ```
 
-**Tải dữ liệu lịch sử (Bắt buộc trước khi Backtest):**
-```powershell
-docker compose -f docker-compose.dev.yml run --rm freqtrade download-data --config user_data/config_freqai.json --days 150 --timeframes 5m 15m 1h 1d --erase
+Chào Kỹ sư, **Principal Engineer** đây.
+
+Tôi đã đọc kỹ toàn bộ file log bạn gửi. Máy tính không bao giờ nói dối, và file log này đã chỉ điểm chính xác lý do tại sao lệnh tải dữ liệu ở Bước 1 của bạn bị "xịt ngòi" hoàn toàn.
+
+Vấn đề không nằm ở code chiến thuật, mà nằm ở cơ chế phòng vệ an toàn dữ liệu (Data Safety) mặc định của chính lõi Freqtrade.
+
+### Bóc tách File Log (Root Cause Analysis)
+
+Hãy nhìn thẳng vào 3 dòng log sinh tử này trong quá trình bạn chạy lệnh tải dữ liệu:
+
+* 
+**Sự thật 1:** Cỗ máy phát hiện xung đột: `Requested start date 2025-08-01 00:00:00 earlier than local data start date 2025-09-30 00:00:00.`  (Ngày bạn yêu cầu tải sớm hơn dữ liệu đang có sẵn trong ổ cứng).
+
+
+* 
+**Sự thật 2:** Cỗ máy từ chối thực thi và gợi ý giải pháp: `Use --prepend to download data prior to 2025-09-30 00:00:00, or --erase to redownload all data.` 
+
+
+* 
+**Sự thật 3:** Kết quả trả về là con số 0 tròn trĩnh: `Downloaded data for BTC/USDT:USDT, 5m, futures with length 0.` 
+
+
+
+**Bản chất Kiến trúc:** Vì ổ cứng của bạn đã tồn tại sẵn một mảnh dữ liệu cũ bắt đầu từ ngày 30/09/2025, Freqtrade mặc định sẽ **đóng băng** và từ chối tải nối thêm dữ liệu cũ hơn (tháng 8) vào để tránh làm hỏng cấu trúc tệp (File Corruption). Việc không tải được dữ liệu dẫn đến cỗ máy AI tiếp tục bị "chết đói" và ném ra lỗi `NaN` y hệt như cũ.
+
+### QUY TRÌNH KHẮC PHỤC TRIỆT ĐỂ (FORCE RE-INGESTION)
+
+Để giải quyết, chúng ta không chắp vá. Chúng ta sẽ đập bỏ dữ liệu cũ bị cụt và ép Freqtrade tải lại một luồng dữ liệu mới hoàn toàn, liền mạch từ tháng 8 đến tháng 11 bằng cách sử dụng cờ lệnh `--erase`.
+
+**Step 1: Ép tải dữ liệu mới (Hard Data Ingestion)**
+Hãy chạy dòng lệnh này (Tôi đã bổ sung tham số `--erase` vào cuối):
+
+```bash
+docker compose -f docker-compose.dev.yml run --rm freqtrade download-data --config user_data/config_freqai.json --timerange 20250801-20251105 -t 5m 15m 1h --exchange binance --erase
+
 ```
 
-Xóa model lỗi (Lần nữa cho chắc) Do lần chạy trước bị crash giữa chừng, file model có thể bị hỏng (corrupted pipeline).
-```powershell
-Remove-Item -Recurse -Force user_data/models/wolf_ai_king_btc_v1
+*(Dấu hiệu thành công: Lần này hệ thống sẽ tiến hành tải thực sự, và Terminal sẽ không xuất hiện dòng `with length 0` nữa).*
+
+**Step 2: Thực thi Stress Test (Bull Market)**
+Chỉ sau khi Step 1 hoàn tất việc tải, hãy bóp cò lệnh Backtest:
+
+```bash
+docker compose -f docker-compose.dev.yml run --rm freqtrade backtesting --strategy WolfStrategy --config user_data/config_freqai.json --timerange 20251001-20251101 --freqaimodel LightGBMRegressor --cache none
+
 ```
 
-**Chạy Backtesting (Kiểm thử chiến thuật):**
-```powershell
-docker compose -f docker-compose.dev.yml run --rm freqtrade backtesting --strategy WolfStrategy --config user_data/config_freqai.json --timerange 20260101-20260201 --freqaimodel XGBoostRegressor
-```
-
-**Chạy Backtesting (Kiểm thử chiến thuật):**
-```powershell
-docker compose -f docker-compose.dev.yml run --rm freqtrade backtesting --strategy WolfStrategy --config user_data/config_freqai.json --timerange 20260101-20260201 --freqaimodel XGBoostRegressor --cache none
+Bạn hãy thực thi Step 1 với tham số `--erase` này để dọn sạch lỗi Data Starvation. Chờ bản báo cáo Backtest "sạch" của bạn để chúng ta nghiệm thu kịch bản Long!
 ```
 
 Chào bạn, **Principal Engineer** đây.
@@ -216,3 +247,5 @@ docker compose run --rm freqtrade hyperopt --hyperopt-loss SharpeHyperOptLoss --
 
 
 nano user_data/strategies/WolfStrategy.py
+
+nano user_data/config_freqai.json
