@@ -239,7 +239,7 @@ docker compose run --rm freqtrade download-data --pairs SUI/USDT:USDT SOL/USDT:U
 Sau khi xóa model và tải đủ data, chạy lại lệnh Hyperopt. Lần này Bot sẽ Training lại từ con số 0 (sạch sẽ, không lỗi).
 
 ```powershell
-docker compose run --rm freqtrade hyperopt --hyperopt-loss SharpeHyperOptLoss --strategy WolfStrategy --spaces roi stoploss trailing --timerange 20260101-20260215 -e 100 -c user_data/config_freqai.json --freqaimodel XGBoostRegressor
+docker compose run --rm freqtrade hyperopt --hyperopt-loss SharpeHyperOptLoss --strategy WolfStrategy --spaces roi stoploss trailing --timerange 20260101-20260215 -e 100 -c user_data/config_freqai.json --freqaimodel XGBoostRegressor --cache none
 
 ```
 
