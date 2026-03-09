@@ -29,11 +29,11 @@ class WolfStrategy(IStrategy):
         {"method": "CooldownPeriod", "stop_duration_candles": 12}
     ]
 
-    # --- CẤU HÌNH ĐÒN BẨY ---
+    # --- CẤU HÌNH ĐÒN BẨY (LEVERAGE) ---
     def leverage(self, pair: str, current_time: datetime, current_rate: float,
                  proposed_leverage: float, max_leverage: float, entry_tag: str, side: str,
                  **kwargs) -> float:
-        return 3.0  # Cố định đòn bẩy 3x an toàn
+        return 5.0  # Nâng đòn bẩy lên 5x để tối ưu hóa vốn vì Drawdown đang rất thấp
 
     # --- HỘP SỐ BÁM ĐUÔI (DIAMOND HANDS V4) ---
     def custom_stoploss(self, pair: str, trade: 'Trade', current_time: datetime,
@@ -48,14 +48,13 @@ class WolfStrategy(IStrategy):
         dynamic_stop_pct = -abs(dynamic_stop_pct)
 
         # 2. BÁM ĐUÔI THEO CẤU TRÚC: CHỈ GỒNG KHI LÃI ĐẬM
-        # Phải lãi trên 5% (hoặc 6*ATR) mới bắt đầu dời rào chắn bám cách đỉnh 3*ATR
         activation_bos = max(atr_pct * 6.0, 0.05) 
         if current_profit > activation_bos:
             return -abs(atr_pct * 3.0) 
-        elif current_profit > (activation_bos * 0.6): # Dời hòa vốn khi lãi chạy được 60% quãng đường
+        elif current_profit > (activation_bos * 0.6):
             return -abs(atr_pct * 4.0)
 
-        # 3. CẦU CHÌ FAIL-FAST (Ngâm vốn)
+        # 3. CẦU CHÌ FAIL-FAST
         time_held = (current_time - trade.open_date_utc).total_seconds()
         if time_held > 5400 and current_profit < -abs(atr_pct): return -0.0001
         
@@ -87,13 +86,7 @@ class WolfStrategy(IStrategy):
         return dataframe
 
     def set_freqai_targets(self, dataframe: DataFrame, metadata: dict, **kwargs) -> DataFrame:
-        horizon = 12
-        future_high = dataframe['high'].rolling(horizon).max().shift(-horizon)
-        future_low = dataframe['low'].rolling(horizon).min().shift(-horizon)
-        max_gain = (future_high - dataframe['close']) / dataframe['close']
-        max_loss = (dataframe['close'] - future_low) / dataframe['close']
-        dataframe['&-rr_score'] = max_gain - (max_loss * 2.0)
-        return dataframe
+        return self.feature_engineering_targets(dataframe, metadata, **kwargs)
 
     # --- KHỞI TẠO CHỈ BÁO & LÀM SẠCH DỮ LIỆU ---
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
@@ -121,11 +114,10 @@ class WolfStrategy(IStrategy):
         # ==========================================
         # 🛡️ V4: MOMENTUM IGNITION & MARKET STRUCTURE 
         # ==========================================
-        # Đo lường sức mạnh nến phá vỡ
         dataframe['candle_body'] = abs(dataframe['close'] - dataframe['open'])
         dataframe['avg_candle_body'] = dataframe['candle_body'].rolling(window=20).mean()
 
-        # Dò tìm Đỉnh (HH) / Đáy (LL) cục bộ trong 10 nến (.shift(1) để chống Lookahead Bias)
+        # Dò tìm Đỉnh (HH) / Đáy (LL) cục bộ trong 10 nến
         dataframe['local_high'] = dataframe['high'].rolling(window=10).max().shift(1)
         dataframe['local_low'] = dataframe['low'].rolling(window=10).min().shift(1)
 
@@ -147,10 +139,13 @@ class WolfStrategy(IStrategy):
         common_cond = dataframe[predict_col].notnull()
         risk_filter = (dataframe['atr'] < (dataframe['close'] * 0.025))
 
-        # KÍCH HOẠT ĐỘNG LƯỢNG (MOMENTUM IGNITION)
-        # Nến bạo lực: Thân dài gấp 1.5 lần trung bình + Khối lượng nổ
+        # =======================================================
+        # KÍCH HOẠT ĐỘNG LƯỢNG (MOMENTUM IGNITION) - NỚI LỎNG V4.1
+        # Hạ hệ số bạo lực từ 1.5 xuống 1.15 để chớp thời cơ nhanh hơn
+        # =======================================================
         momentum_ignition = (
-            (dataframe['candle_body'] > dataframe['avg_candle_body'] * 1.5) & 
+            (dataframe['candle_body'] > dataframe['avg_candle_body'] * 1.15) & 
+            (dataframe['candle_body'] < dataframe['avg_candle_body'] * 3.5) & 
             (dataframe['volume'] > dataframe['volume_mean'])
         )
 
@@ -166,28 +161,27 @@ class WolfStrategy(IStrategy):
         )
 
         # =======================================================
-        # 🎯 BOS SNIPER (SĂN CẤU TRÚC PHÁ VỠ)
+        # 🎯 BOS SNIPER (SĂN CẤU TRÚC PHÁ VỠ) - NỚI LỎNG V4.1
         # =======================================================
         long_bos_cond = (
             common_cond & risk_filter & momentum_ignition & macro_uptrend & 
-            (dataframe['close'] > dataframe['vwap_24h']) & # Dòng tiền Tổ chức
-            (dataframe['close'] > dataframe['local_high']) & # BREAK OF STRUCTURE
-            (dataframe[predict_col] > 0.005) # Lọc AI gắt gao (Kỳ vọng > 0.5%)
+            (dataframe['close'] > dataframe['vwap_24h']) & 
+            (dataframe['close'] > dataframe['local_high']) & 
+            (dataframe[predict_col] > 0.003) # Hạ ngưỡng AI từ 0.005 xuống 0.003
         )
 
         short_bos_cond = (
             common_cond & risk_filter & momentum_ignition & macro_downtrend & 
-            (dataframe['close'] < dataframe['vwap_24h']) & # Dòng tiền Tổ chức
-            (dataframe['close'] < dataframe['local_low']) & # BREAK OF STRUCTURE
-            (dataframe[predict_col] < -0.005) # Lọc AI gắt gao (Kỳ vọng < -0.5%)
+            (dataframe['close'] < dataframe['vwap_24h']) & 
+            (dataframe['close'] < dataframe['local_low']) & 
+            (dataframe[predict_col] < -0.003) # Hạ ngưỡng AI từ -0.005 xuống -0.003
         )
 
-        # GÁN NHÃN ĐỂ XUẤT TRẬN
         dataframe.loc[long_bos_cond, ['enter_long', 'enter_tag']] = (1, 'long_bos_sniper')
         dataframe.loc[short_bos_cond, ['enter_short', 'enter_tag']] = (1, 'short_bos_sniper')
 
         # ==========================================
-        # 🧭 V4 X-RAY TELEMETRY (Chẩn đoán Real-time)
+        # 🧭 V4 X-RAY TELEMETRY 
         # ==========================================
         if metadata['pair'] == 'BTC/USDT:USDT':
             curr_close = dataframe['close'].iloc[last_idx]
