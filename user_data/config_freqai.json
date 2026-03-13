@@ -1,15 +1,17 @@
 {
-    "max_open_trades": 3,
+    "max_open_trades": 2,
     "stake_currency": "USDT",
     "stake_amount": "unlimited",
     "tradable_balance_ratio": 0.99,
     "fiat_display_currency": "USD",
-    "dry_run": true,
-    "timeframe": "5m",
+    "dry_run": false,
+    "timeframe": "15m",
     "cancel_open_orders_on_exit": false,
     "unfilledtimeout": {
-        "entry": 10,
-        "exit": 30
+        "entry": 5,
+        "exit": 5,
+        "exit_timeout_count": 0,
+        "unit": "minutes"
     },
     "entry_pricing": {
         "price_side": "other",
@@ -26,10 +28,19 @@
         "use_order_book": true,
         "order_book_top": 1
     },
+    "order_types": {
+        "entry": "market",
+        "exit": "market",
+        "emergency_exit": "market",
+        "force_exit": "market",
+        "force_entry": "market",
+        "stoploss": "market",
+        "stoploss_on_exchange": false
+    },
     "exchange": {
         "name": "binance",
-        "key": "KEY_GIA_DE_CHAY_HYPEROPT",
-        "secret": "SECRET_GIA_DE_CHAY_HYPEROPT",
+        "key": "BXSaUfkzb5gFo6gtQwEMq0cBFE3iW871EZhbC377EGWCAnIcIa62GPaeJWwLmbfY",
+        "secret": "W515LKZfV8385fH7AUVIw9KOXSfs0AJN3gRoUCLBmxIi1C2sre6lVXnolk5DiJ85",
         "ccxt_config": {
             "enableRateLimit": true
         },
@@ -38,7 +49,6 @@
             "rateLimit": 200
         },
         "pair_whitelist": [
-            "BTC/USDT:USDT",
             "ETH/USDT:USDT",
             "BNB/USDT:USDT"
         ],
@@ -56,21 +66,20 @@
         "train_period_days": 15,
         "backtest_period_days": 7,
         "live_retrain_hours": 1,
-        "identifier": "wolf_v6_clean",
+        "identifier": "wolf_mtf_v6_15m",
         "feature_parameters": {
             "include_timeframes": [
-                "5m",
                 "15m",
                 "1h"
             ],
             "include_corr_pairlist": [],
-            "label_period_candles": 20,
+            "label_period_candles": 24,
             "include_shifted_candles": 2,
             "indicator_periods_candles": [
                 10,
                 20
             ],
-            "indicator_max_period_candles": 60,
+            "indicator_max_period_candles": 20,
             "weight_factor": 0.9,
             "principal_component_analysis": false,
             "use_SVM_to_remove_outliers": false,
@@ -90,12 +99,12 @@
     },
     "telegram": {
         "enabled": true,
-        "token": "8615669335:AAFJ4-sggVB0S6ygMLAt9LY4cHOnQ-eGgGk",
+        "token": "8457509124:AAFFDpLDiPBryFgD4unX4CirearHxHQL_QA",
         "chat_id": "1761282679"
     },
     "api_server": {
-        "enabled": false,
-        "listen_ip_address": "127.0.0.1",
+        "enabled": true,
+        "listen_ip_address": "0.0.0.0",
         "listen_port": 8080,
         "username": "freqtrader",
         "password": "SuperSecurePassword"

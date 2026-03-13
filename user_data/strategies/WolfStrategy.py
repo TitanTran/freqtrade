@@ -10,60 +10,60 @@ logger = logging.getLogger(__name__)
 
 class WolfStrategy(IStrategy):
     INTERFACE_VERSION = 3
-    timeframe = "5m"
+    timeframe = "15m"  # CHẾ ĐỘ CẠO VẢY
     can_short = True
 
     # --- KIẾN TRÚC BẢO VỆ TÀI SẢN ---
-    stoploss = -0.15 # Cầu chì Black Swan
+    stoploss = -0.15 # Ngắn hơn
     use_custom_stoploss = True
     trailing_stop = False
 
+    # ĐÁNH NHANH THẮNG NHANH (Tính bằng Phút)
     minimal_roi = {
-        "0": 0.10,    # Chốt 10% ngay lập tức nếu giá bơm điên rồ
-        "60": 0.05,   
-        "120": 0.02,
-        "240": 0      
+        "0": 0.40,    # Lãi 40% (ký quỹ) mới chốt thẳng
+        "1440": 0.15, # Sau 1 ngày mới hạ chuẩn chốt
+        "2880": 0     # Sau 2 ngày hòa vốn rút lui
     }
 
     protections = [
-        {"method": "CooldownPeriod", "stop_duration_candles": 12}
+        {"method": "CooldownPeriod", "stop_duration_candles": 4} # Dính SL nghỉ 1 tiếng
     ]
 
-    # --- CẤU HÌNH ĐÒN BẨY (LEVERAGE) ---
     def leverage(self, pair: str, current_time: datetime, current_rate: float,
                  proposed_leverage: float, max_leverage: float, entry_tag: str, side: str,
                  **kwargs) -> float:
-        return 5.0  # Nâng đòn bẩy lên 5x để tối ưu hóa vốn vì Drawdown đang rất thấp
+        return 3.0  # Hạ đòn bẩy xuống 3x để phù hợp với khung ngắn, giảm nhiễu
 
-    # --- HỘP SỐ BÁM ĐUÔI (DIAMOND HANDS V4) ---
+    # --- HỘP SỐ CẮT LỖ FAIL-FAST & GỒNG LÃI VĨ MÔ ---
     def custom_stoploss(self, pair: str, trade: 'Trade', current_time: datetime,
                         current_rate: float, current_profit: float, **kwargs) -> float:
-        dataframe, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
-        if len(dataframe) == 0: return -0.05
-        last_candle = dataframe.iloc[-1].squeeze()
-        atr_pct = last_candle['atr'] / current_rate
-
-        # 1. INITIAL STOPLOSS: Nới rộng lên 3.5*ATR để sống sót qua nhịp giật râu (Whipsaw)
-        dynamic_stop_pct = max(min(atr_pct * 3.5, 0.12), 0.03)
-        dynamic_stop_pct = -abs(dynamic_stop_pct)
-
-        # 2. BÁM ĐUÔI THEO CẤU TRÚC: CHỈ GỒNG KHI LÃI ĐẬM
-        activation_bos = max(atr_pct * 6.0, 0.05) 
-        if current_profit > activation_bos:
-            return -abs(atr_pct * 3.0) 
-        elif current_profit > (activation_bos * 0.6):
-            return -abs(atr_pct * 4.0)
-
-        # 3. CẦU CHÌ FAIL-FAST
-        time_held = (current_time - trade.open_date_utc).total_seconds()
-        if time_held > 5400 and current_profit < -abs(atr_pct): return -0.0001
         
-        return dynamic_stop_pct
+        # Lấy data 15m để cắt lỗ ngắn
+        dataframe_15m, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
+        if len(dataframe_15m) == 0: return -0.05
+        atr_15m_pct = dataframe_15m.iloc[-1]['atr'] / current_rate
 
-    # --- BỘ CẤP DỮ LIỆU ĐA CHIỀU (FEATURE ENGINEERING) ---
+        # Lấy data 1H để gồng lãi dài
+        dataframe_1h, _ = self.dp.get_analyzed_dataframe(pair, "1h") 
+        if len(dataframe_1h) == 0: return -0.05
+        atr_1h_pct = dataframe_1h.iloc[-1]['atr'] / current_rate
+
+        # 1. INITIAL STOPLOSS: Cắt lỗ cực ngắn dựa trên 15m (Tối đa 6%)
+        # Cắt đứt hoàn toàn tình trạng gồng lỗ sâu
+        initial_stop = max(min(atr_15m_pct * 2.0, 0.06), 0.02)
+        
+        # 2. KHÓA LÃI VĨ MÔ (Bám theo sóng 1H)
+        activation_bos = max(atr_1h_pct * 2.5, 0.05) # Lãi trên 5% mới kéo Stoploss
+        
+        if current_profit > activation_bos:
+            return -abs(atr_1h_pct * 1.2) # Thả lỏng cho giá thở bằng biên độ 1H
+
+        return -abs(initial_stop)
+
+    # --- BỘ CẤP DỮ LIỆU ĐA CHIỀU ---
     def informative_pairs(self):
         pairs = self.dp.current_whitelist()
-        return [(pair, "1h") for pair in pairs]
+        return [(pair, "1h") for pair in pairs] # Radar Vĩ Mô là 1H
 
     def feature_engineering_expand_all(self, dataframe: DataFrame, period: int, metadata: dict, **kwargs) -> DataFrame:
         dataframe["%-rsi-" + str(period)] = ta.RSI(dataframe, timeperiod=period)
@@ -77,12 +77,12 @@ class WolfStrategy(IStrategy):
         return dataframe
 
     def feature_engineering_targets(self, dataframe: DataFrame, metadata: dict, **kwargs) -> DataFrame:
-        horizon = 12
+        horizon = 24 # AI dự phóng 24 nến 15m (6 tiếng)
         future_high = dataframe['high'].rolling(horizon).max().shift(-horizon)
         future_low = dataframe['low'].rolling(horizon).min().shift(-horizon)
         max_gain = (future_high - dataframe['close']) / dataframe['close']
         max_loss = (dataframe['close'] - future_low) / dataframe['close']
-        dataframe['&-rr_score'] = max_gain - (max_loss * 2.0)
+        dataframe['&-rr_score'] = max_gain - (max_loss * 2.0) # Phạt rủi ro nặng hơn
         return dataframe
 
     def set_freqai_targets(self, dataframe: DataFrame, metadata: dict, **kwargs) -> DataFrame:
@@ -99,33 +99,42 @@ class WolfStrategy(IStrategy):
         inf_df['plus_di'] = ta.PLUS_DI(inf_df, timeperiod=14)
         inf_df['minus_di'] = ta.MINUS_DI(inf_df, timeperiod=14)
         inf_df['adx'] = ta.ADX(inf_df, timeperiod=14)
+        inf_df['atr'] = ta.ATR(inf_df, timeperiod=14)
         dataframe = merge_informative_pair(dataframe, inf_df, self.timeframe, "1h", ffill=True)
 
-        # 2. MICRO 5m
+        # 2. MICRO 15m
+        dataframe['ema_7'] = ta.EMA(dataframe, timeperiod=7)   # <-- Thêm mới
+        dataframe['ema_25'] = ta.EMA(dataframe, timeperiod=25) # <-- Thêm mới
+        dataframe['ema_10'] = ta.EMA(dataframe, timeperiod=10)
+        dataframe['ema_50'] = ta.EMA(dataframe, timeperiod=50)
         dataframe['ema_200'] = ta.EMA(dataframe, timeperiod=200)
         dataframe['atr'] = ta.ATR(dataframe, timeperiod=14) 
         dataframe['rsi'] = ta.RSI(dataframe, timeperiod=14)
+        
+        macd = ta.MACD(dataframe)
+        dataframe['macd'] = macd['macd']
+        dataframe['macdsignal'] = macd['macdsignal']
+        dataframe['macdhist'] = macd['macdhist']
+        
+        bb = ta.BBANDS(dataframe, timeperiod=20)
+        dataframe['bb_upperband'] = bb['upperband']
+        dataframe['bb_lowerband'] = bb['lowerband']
 
-        # 3. VOLUME & LIQUIDITY (SMART MONEY)
+        # 3. VOLUME & LIQUIDITY (96 nến 15m = 24h)
         typical_price = (dataframe['high'] + dataframe['low'] + dataframe['close']) / 3
-        dataframe['vwap_24h'] = (dataframe['volume'] * typical_price).rolling(window=288).sum() / dataframe['volume'].rolling(window=288).sum()
-        dataframe['volume_mean'] = dataframe['volume'].rolling(window=20).mean()
+        dataframe['vwap_24h'] = (dataframe['volume'] * typical_price).rolling(window=96).sum() / dataframe['volume'].rolling(window=96).sum()
+        dataframe['volume_mean'] = dataframe['volume'].rolling(window=40).mean()
 
-        # ==========================================
-        # 🛡️ V4: MOMENTUM IGNITION & MARKET STRUCTURE 
-        # ==========================================
+        # 4. MARKET STRUCTURE
         dataframe['candle_body'] = abs(dataframe['close'] - dataframe['open'])
-        dataframe['avg_candle_body'] = dataframe['candle_body'].rolling(window=20).mean()
+        dataframe['avg_candle_body'] = dataframe['candle_body'].rolling(window=40).mean()
+        dataframe['local_high'] = dataframe['high'].rolling(window=20).max().shift(1)
+        dataframe['local_low'] = dataframe['low'].rolling(window=20).min().shift(1)
 
-        # Dò tìm Đỉnh (HH) / Đáy (LL) cục bộ trong 10 nến
-        dataframe['local_high'] = dataframe['high'].rolling(window=10).max().shift(1)
-        dataframe['local_low'] = dataframe['low'].rolling(window=10).min().shift(1)
-
-        # Nạp dữ liệu vào AI
         dataframe = self.freqai.start(dataframe, metadata, self)
         return dataframe
 
-    # --- LÕI TÁC CHIẾN DUY NHẤT (ENTRY) ---
+    # --- LÕI TÁC CHIẾN (ENTRY) ---
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         import logging
         logger = logging.getLogger(__name__)
@@ -137,67 +146,120 @@ class WolfStrategy(IStrategy):
 
         last_idx = -1
         common_cond = dataframe[predict_col].notnull()
-        risk_filter = (dataframe['atr'] < (dataframe['close'] * 0.025))
+        risk_filter = (dataframe['atr'] < (dataframe['close'] * 0.025)) 
 
-        # =======================================================
-        # KÍCH HOẠT ĐỘNG LƯỢNG (MOMENTUM IGNITION) - NỚI LỎNG V4.1
-        # Hạ hệ số bạo lực từ 1.5 xuống 1.15 để chớp thời cơ nhanh hơn
-        # =======================================================
+        # KÍCH HOẠT ĐỘNG LƯỢNG
         momentum_ignition = (
             (dataframe['candle_body'] > dataframe['avg_candle_body'] * 1.15) & 
-            (dataframe['candle_body'] < dataframe['avg_candle_body'] * 3.5) & 
+            (dataframe['candle_body'] < dataframe['avg_candle_body'] * 4.0) & 
             (dataframe['volume'] > dataframe['volume_mean'])
         )
 
-        # LA BÀN VĨ MÔ
+        # LA BÀN VĨ MÔ 1H
         macro_uptrend = (
-            (dataframe['ema_50_1h'] > dataframe['ema_200_1h']) |
-            ((dataframe['plus_di_1h'] > dataframe['minus_di_1h']) & (dataframe['adx_1h'] > 20))
+            (dataframe['ema_50_1h'] > dataframe['ema_200_1h']) &
+            (dataframe['plus_di_1h'] > dataframe['minus_di_1h']) & 
+            (dataframe['adx_1h'] > 20) 
         )
         macro_downtrend = (
             (dataframe['close'] < dataframe['ema_100_1h']) &
             (dataframe['minus_di_1h'] > dataframe['plus_di_1h']) & 
-            (dataframe['adx_1h'] > 25)
+            (dataframe['adx_1h'] > 20) 
         )
 
-        # =======================================================
-        # 🎯 BOS SNIPER (SĂN CẤU TRÚC PHÁ VỠ) - NỚI LỎNG V4.1
-        # =======================================================
+        # BỘ LỌC CHỐNG FOMO (ĐÃ ĐƯỢC TỐI ƯU CHO SIÊU SÓNG)
+        # Nới RSI lên 75/25 để bắt được các nhịp Pullback trong Trend cực mạnh.
+        # Cho phép giá liếm nhẹ ra ngoài dải Band (1%) nhưng không được đâm thủng quá sâu.
+        no_fomo_long = (
+            (dataframe['rsi'] < 75) & 
+            (dataframe['close'] <= (dataframe['bb_upperband'] * 1.01))
+        )
+        no_fomo_short = (
+            (dataframe['rsi'] > 25) & 
+            (dataframe['close'] >= (dataframe['bb_lowerband'] * 0.99))
+        )
+
+        # --- SÁT THỦ BẮT ĐÁY / BÁN ĐỈNH SIÊU TỐC ---
+        # Bóp cò ngay khi MACD tạo đáy V-shape và Giá vừa nhú qua EMA 7 (Không chờ cắt EMA 25)
+        macd_reversal_long = (
+            (dataframe['macdhist'] > dataframe['macdhist'].shift(1)) & 
+            (dataframe['macdhist'].shift(1) < dataframe['macdhist'].shift(2)) &
+            (dataframe['close'] > dataframe['ema_7']) # Xác nhận nến đã xanh và nảy lên
+        )
+        
+        macd_reversal_short = (
+            (dataframe['macdhist'] < dataframe['macdhist'].shift(1)) & 
+            (dataframe['macdhist'].shift(1) > dataframe['macdhist'].shift(2)) &
+            (dataframe['close'] < dataframe['ema_7']) # Xác nhận nến đã đỏ và gãy xuống
+        )
+
+        # 🎯 BOS SNIPER - TỐI ƯU HÓA BẮT ĐÁY (BOTTOM FISHER)
         long_bos_cond = (
-            common_cond & risk_filter & momentum_ignition & macro_uptrend & 
-            (dataframe['close'] > dataframe['vwap_24h']) & 
-            (dataframe['close'] > dataframe['local_high']) & 
-            (dataframe[predict_col] > 0.003) # Hạ ngưỡng AI từ 0.005 xuống 0.003
+            common_cond & risk_filter & 
+            (dataframe['close'] > dataframe['vwap_24h']) & # Vẫn giữ VWAP làm khiên bảo vệ
+            macd_reversal_long &   # Sử dụng Tín hiệu bắt đáy MACD
+            no_fomo_long &         
+            (dataframe[predict_col] > 0.002) # Hạ ngưỡng AI xuống cực thấp (0.2%) để không cản trở nhịp nảy
         )
 
         short_bos_cond = (
-            common_cond & risk_filter & momentum_ignition & macro_downtrend & 
+            common_cond & risk_filter & 
             (dataframe['close'] < dataframe['vwap_24h']) & 
-            (dataframe['close'] < dataframe['local_low']) & 
-            (dataframe[predict_col] < -0.003) # Hạ ngưỡng AI từ -0.005 xuống -0.003
+            macd_reversal_short & 
+            no_fomo_short & 
+            (dataframe[predict_col] < -0.002)
         )
 
         dataframe.loc[long_bos_cond, ['enter_long', 'enter_tag']] = (1, 'long_bos_sniper')
         dataframe.loc[short_bos_cond, ['enter_short', 'enter_tag']] = (1, 'short_bos_sniper')
 
         # ==========================================
-        # 🧭 V4 X-RAY TELEMETRY 
+        # 🧭 V6.2 X-RAY TELEMETRY (SÁT THỦ BẮT ĐÁY)
         # ==========================================
-        if metadata['pair'] == 'BTC/USDT:USDT':
+        if True:
             curr_close = dataframe['close'].iloc[last_idx]
-            curr_ll = dataframe['local_low'].iloc[last_idx]
-            curr_hh = dataframe['local_high'].iloc[last_idx]
+            curr_vwap = dataframe['vwap_24h'].iloc[last_idx]
+            curr_rsi = dataframe['rsi'].iloc[last_idx]
             
-            status_s = "🔴 CHỜ PHÁ ĐÁY" if curr_close > curr_ll else "✅ ĐÃ PHÁ ĐÁY"
-            status_l = "🟢 CHỜ PHÁ ĐỈNH" if curr_close < curr_hh else "✅ ĐÃ PHÁ ĐỈNH"
-            macro_status = "🟢 UPTREND" if macro_uptrend.iloc[last_idx] else ("🔴 DOWNTREND" if macro_downtrend.iloc[last_idx] else "🟡 SIDEWAY")
+            # Khung xu hướng vẫn mượn EMA 7 và 25 để xác định vị thế
+            is_up = dataframe['ema_7'].iloc[last_idx] > dataframe['ema_25'].iloc[last_idx]
+            is_down = dataframe['ema_7'].iloc[last_idx] < dataframe['ema_25'].iloc[last_idx]
+            
+            ai_score = dataframe[predict_col].iloc[last_idx] if predict_col in dataframe.columns else 0.0
             
             logger.warning(f"")
-            logger.warning(f"========== 🧭 V4 GHOST HUNTER {metadata['pair']} 🧭 ==========")
-            logger.warning(f"► 1. LA BÀN VĨ MÔ: {macro_status}")
-            logger.warning(f"► 2. TRẠNG THÁI DÒNG TIỀN (VWAP 24H): {dataframe['vwap_24h'].iloc[last_idx]:.2f}")
-            logger.warning(f"► 3. CẤU TRÚC: SHORT ({status_s} | LL: {curr_ll:.2f}) || LONG ({status_l} | HH: {curr_hh:.2f})")
-            logger.warning(f"► 4. MOMENTUM IGNITION: {'🔥 KÍCH HOẠT' if momentum_ignition.iloc[last_idx] else '💤 Đang nén'}")
+            logger.warning(f"========== 🧭 V6.2 X-RAY (SÁT THỦ BẮT ĐÁY): TÌNH TRẠNG BOT ({metadata['pair']}) 🧭 ==========")
+            
+            if is_up:
+                # LUỒNG UPTREND -> TÌM ĐÁY MUA LÊN (LONG)
+                vwap_ok = "✅ THỎA MÃN (Giá > VWAP 24h)" if curr_close > curr_vwap else "🔴 BỊ PHỦ QUYẾT (Ngược dòng tiền)"
+                fomo_ok = f"✅ CHỜ ĐIỀU CHỈNH (RSI: {curr_rsi:.1f})" if no_fomo_long.iloc[last_idx] else f"🔴 QUÁ NÓNG/ĐU ĐỈNH (RSI: {curr_rsi:.1f})"
+                macd_long_ok = "🔥 TẠO ĐÁY CHỮ V (MACD ngóc lên)" if macd_reversal_long.iloc[last_idx] else "⏳ CHỜ MACD TẠO ĐÁY"
+                ai_ok = "✅ THỎA MÃN (> 0.002)" if ai_score > 0.002 else "🔴 BỊ PHỦ QUYẾT (Kỳ vọng lợi nhuận thấp)"
+                
+                logger.warning(f"► 1. TỐC ĐỘ CAO (15m): 🟢 UPTREND (EMA 7 > 25) -> CANH LỆNH [LONG] 🚀")
+                logger.warning(f"► 2. TRỌNG TÀI DÒNG TIỀN: {vwap_ok} | Giá Live: {curr_close:.2f} / VWAP: {curr_vwap:.2f}")
+                logger.warning(f"► 3. CHỐNG FOMO: {fomo_ok}")
+                logger.warning(f"► 4. ĐIỂM BÓP CÒ: {macd_long_ok}")
+                logger.warning(f"► 5. BỘ NÃO AI: {ai_ok} | Điểm hiện tại: {ai_score:.4f}")
+                
+            elif is_down:
+                # LUỒNG DOWNTREND -> TÌM ĐỈNH BÁN XUỐNG (SHORT)
+                vwap_ok = "✅ THỎA MÃN (Giá < VWAP 24h)" if curr_close < curr_vwap else "🔴 BỊ PHỦ QUYẾT (Ngược dòng tiền)"
+                fomo_ok = f"✅ CHỜ ĐIỀU CHỈNH (RSI: {curr_rsi:.1f})" if no_fomo_short.iloc[last_idx] else f"🔴 QUÁ LẠNH/ĐU ĐÁY (RSI: {curr_rsi:.1f})"
+                macd_short_ok = "🩸 TẠO ĐỈNH THÀNH CÔNG (MACD cắm mỏ)" if macd_reversal_short.iloc[last_idx] else "⏳ CHỜ MACD TẠO ĐỈNH"
+                ai_ok = "✅ THỎA MÃN (< -0.002)" if ai_score < -0.002 else "🔴 BỊ PHỦ QUYẾT (Kỳ vọng lợi nhuận thấp)"
+                
+                logger.warning(f"► 1. TỐC ĐỘ CAO (15m): 🔴 DOWNTREND (EMA 7 < 25) -> CANH LỆNH [SHORT] 🩸")
+                logger.warning(f"► 2. TRỌNG TÀI DÒNG TIỀN: {vwap_ok} | Giá Live: {curr_close:.2f} / VWAP: {curr_vwap:.2f}")
+                logger.warning(f"► 3. CHỐNG FOMO: {fomo_ok}")
+                logger.warning(f"► 4. ĐIỂM BÓP CÒ: {macd_short_ok}")
+                logger.warning(f"► 5. BỘ NÃO AI: {ai_ok} | Điểm hiện tại: {ai_score:.4f}")
+                
+            else:
+                # LUỒNG SIDEWAY
+                logger.warning(f"► 1. TỐC ĐỘ CAO (15m): 🟡 SIDEWAY (EMA 7 chập EMA 25) -> BOT ĐI NGỦ 💤")
+            
             logger.warning(f"===========================================================")
 
         return dataframe

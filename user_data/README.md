@@ -21,7 +21,7 @@ Dự án phát triển Bot giao dịch Futures sử dụng FreqAI (Machine Learn
 ### 1. Quản trị Dữ liệu (Data Ingestion)
 Tải dữ liệu nến để Backtest hoặc Train AI. Sử dụng cờ `--erase` để ép tải lại từ đầu nếu dữ liệu cũ bị lỗi (Data Starvation).
 ```powershell
-docker compose -f docker-compose.dev.yml run --rm freqtrade download-data --config user_data/config_freqai.json --timerange 20250801-20251105 -t 5m 15m 1h --exchange binance --erase
+docker-compose run --rm freqtrade download-data --config user_data/config_freqai.json --timerange 20250101-20260310 -t 15m 1h --exchange binance --erase
 
 ```
 
@@ -30,14 +30,25 @@ docker compose -f docker-compose.dev.yml run --rm freqtrade download-data --conf
 **Chạy Backtest (Kiểm tra chiến thuật):**
 
 ```powershell
-docker compose -f docker-compose.dev.yml run --rm freqtrade backtesting --strategy WolfStrategy --config user_data/config_freqai.json --timerange 20260101-20260201 --freqaimodel XGBoostRegressor --cache none
+docker-compose run --rm freqtrade backtesting --strategy WolfStrategy --config user_data/config_freqai.json --timerange 20260101-20260310 --freqaimodel XGBoostRegressor --cache none
 
+```
+
+**Chạy Backtest (Kiểm tra chiến thuật Học tăng cường):**
+
+```powershell
+python -m freqtrade backtesting --strategy WolfRLStrategy --config config_rl.json --timerange 20260101-20260301 --freqaimodel ReinforcementLearner
 ```
 
 **Chạy Hyperopt (Tối ưu hóa thông số):**
 
 ```powershell
 docker compose -f docker-compose.dev.yml run --rm freqtrade hyperopt --hyperopt-loss SharpeHyperOptLoss --strategy WolfStrategy --spaces roi stoploss trailing --timerange 20260101-20260215 -e 100 -c user_data/config_freqai.json --freqaimodel XGBoostRegressor --cache none
+
+```
+**Lệnh Xuất Trận Khởi Động (CMD):**
+```powershell
+python -m freqtrade backtesting --strategy WolfRLStrategy --config user_data/config_rl.json --timerange 20260101-20260301 --freqaimodel ReinforcementLearner
 
 ```
 
@@ -55,9 +66,10 @@ Remove-Item -Recurse -Force user_data/models/*
 # Xóa file báo cáo Backtest cũ
 Remove-Item -Recurse -Force user_data/backtest_results/*
 
-```
-
----
+### Kích hoạt môi trường ảo bằng cái tên mới:
+PowerShell
+.\ft_venv\Scripts\activate
+(Thành công: Chữ (ft_venv) màu xanh sẽ hiện ra ở đầu dòng).
 
 ## 🌐 PHẦN 2: MÔI TRƯỜNG LIVE (VPS PRODUCTION)
 
@@ -69,16 +81,18 @@ Remove-Item -Recurse -Force user_data/backtest_results/*
 
 ```bash
 # Khởi động Bot chạy ngầm
-docker-compose up -d
+docker compose up -d
 
 # Khởi động lại Bot (Nạp code mới)
-docker-compose restart
+docker compose restart
 
 # Tắt Bot hoàn toàn
-docker-compose down
+docker compose down
 
 # Xem Log hệ thống trực tiếp (Ấn Ctrl+C để thoát)
-docker-compose logs -f freqtrade
+docker compose logs -f freqtrade
+
+docker compose logs -f --tail=100 freqtrade
 
 ```
 
@@ -100,6 +114,9 @@ nano user_data/strategies/WolfStrategy.py
 
 # Sửa cấu hình Bot
 nano user_data/config.json
+
+# Sửa cấu hình Bot (Đang sữ dụng)
+nano user_data/config_freqai.json
 # (Lưu file trong Nano: Ctrl + O -> Enter -> Ctrl + X)
 
 ```
@@ -123,11 +140,5 @@ Dọn dẹp màn hình terminal bị loạn và xóa bộ nhớ lịch sử các
 
 ```bash
 history -c && rm ~/.bash_history && clear
-
-```
-
-```
-
-**Next step:** Kỹ sư hãy đưa file này vào thư mục `user_data` và đẩy lên Git. Với bản tài liệu này, bạn đã có một bộ khung vận hành chuẩn mực phân tách rõ ràng. Cần tôi tối ưu thêm phần nào trong quy trình CI/CD đẩy code lên VPS nữa không?
 
 ```
