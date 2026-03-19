@@ -14,7 +14,7 @@ class WolfStrategy(IStrategy):
     can_short = True
 
     # --- KIẾN TRÚC BẢO VỆ TÀI SẢN ---
-    stoploss = -0.15 # Ngắn hơn
+    stoploss = -0.15 # Giới hạn an toàn sàn
     use_custom_stoploss = True
     trailing_stop = False
 
@@ -32,7 +32,7 @@ class WolfStrategy(IStrategy):
     def leverage(self, pair: str, current_time: datetime, current_rate: float,
                  proposed_leverage: float, max_leverage: float, entry_tag: str, side: str,
                  **kwargs) -> float:
-        return 3.0  # Hạ đòn bẩy xuống 3x để phù hợp với khung ngắn, giảm nhiễu
+        return 3.0  # Đòn bẩy 3x
 
     # --- HỘP SỐ CẮT LỖ FAIL-FAST & GỒNG LÃI VĨ MÔ ---
     def custom_stoploss(self, pair: str, trade: 'Trade', current_time: datetime,
@@ -49,11 +49,11 @@ class WolfStrategy(IStrategy):
         atr_1h_pct = dataframe_1h.iloc[-1]['atr'] / current_rate
 
         # 1. INITIAL STOPLOSS: Cắt lỗ cực ngắn dựa trên 15m (Tối đa 6%)
-        # Cắt đứt hoàn toàn tình trạng gồng lỗ sâu
         initial_stop = max(min(atr_15m_pct * 2.0, 0.06), 0.02)
         
         # 2. KHÓA LÃI VĨ MÔ (Bám theo sóng 1H)
-        activation_bos = max(atr_1h_pct * 2.5, 0.05) # Lãi trên 5% mới kéo Stoploss
+        # Kích hoạt khi lãi > 3.33% chưa đòn bẩy (tương đương 10% ROI với 3x Leverage)
+        activation_bos = max(atr_1h_pct * 2.5, 0.033) 
         
         if current_profit > activation_bos:
             return -abs(atr_1h_pct * 1.2) # Thả lỏng cho giá thở bằng biên độ 1H
@@ -103,8 +103,8 @@ class WolfStrategy(IStrategy):
         dataframe = merge_informative_pair(dataframe, inf_df, self.timeframe, "1h", ffill=True)
 
         # 2. MICRO 15m
-        dataframe['ema_7'] = ta.EMA(dataframe, timeperiod=7)   # <-- Thêm mới
-        dataframe['ema_25'] = ta.EMA(dataframe, timeperiod=25) # <-- Thêm mới
+        dataframe['ema_7'] = ta.EMA(dataframe, timeperiod=7)
+        dataframe['ema_25'] = ta.EMA(dataframe, timeperiod=25)
         dataframe['ema_10'] = ta.EMA(dataframe, timeperiod=10)
         dataframe['ema_50'] = ta.EMA(dataframe, timeperiod=50)
         dataframe['ema_200'] = ta.EMA(dataframe, timeperiod=200)
@@ -148,28 +148,7 @@ class WolfStrategy(IStrategy):
         common_cond = dataframe[predict_col].notnull()
         risk_filter = (dataframe['atr'] < (dataframe['close'] * 0.025)) 
 
-        # KÍCH HOẠT ĐỘNG LƯỢNG
-        momentum_ignition = (
-            (dataframe['candle_body'] > dataframe['avg_candle_body'] * 1.15) & 
-            (dataframe['candle_body'] < dataframe['avg_candle_body'] * 4.0) & 
-            (dataframe['volume'] > dataframe['volume_mean'])
-        )
-
-        # LA BÀN VĨ MÔ 1H
-        macro_uptrend = (
-            (dataframe['ema_50_1h'] > dataframe['ema_200_1h']) &
-            (dataframe['plus_di_1h'] > dataframe['minus_di_1h']) & 
-            (dataframe['adx_1h'] > 20) 
-        )
-        macro_downtrend = (
-            (dataframe['close'] < dataframe['ema_100_1h']) &
-            (dataframe['minus_di_1h'] > dataframe['plus_di_1h']) & 
-            (dataframe['adx_1h'] > 20) 
-        )
-
-        # BỘ LỌC CHỐNG FOMO (ĐÃ ĐƯỢC TỐI ƯU CHO SIÊU SÓNG)
-        # Nới RSI lên 75/25 để bắt được các nhịp Pullback trong Trend cực mạnh.
-        # Cho phép giá liếm nhẹ ra ngoài dải Band (1%) nhưng không được đâm thủng quá sâu.
+        # BỘ LỌC CHỐNG FOMO 
         no_fomo_long = (
             (dataframe['rsi'] < 75) & 
             (dataframe['close'] <= (dataframe['bb_upperband'] * 1.01))
@@ -179,32 +158,54 @@ class WolfStrategy(IStrategy):
             (dataframe['close'] >= (dataframe['bb_lowerband'] * 0.99))
         )
 
-        # --- SÁT THỦ BẮT ĐÁY / BÁN ĐỈNH SIÊU TỐC ---
-        # Bóp cò ngay khi MACD tạo đáy V-shape và Giá vừa nhú qua EMA 7 (Không chờ cắt EMA 25)
+        # ======================================================================
+        # --- SÁT THỦ ĐÁNH CHẶN (V3.0 - NO SUPPLY / NO DEMAND) ---
+        # Tuyệt đối không mua đuổi nến Climax. Chỉ bóp cò khi thanh khoản cạn kiệt.
+        # ======================================================================
+
+        # 1. BỘ LỌC CẠN KIỆT (STEALTH VOLUME)
+        # Bắt buộc nến trước đó phải là nến cạn thanh khoản (Volume < Trung bình).
+        # Nến hiện tại bóp cò có thể nhích Volume lên một chút xác nhận dòng tiền, 
+        # nhưng tuyệt đối không được là nến bùng nổ FOMO (> 1.2 lần trung bình).
+        stealth_volume = (
+            (dataframe['volume'].shift(1) < dataframe['volume_mean'].shift(1)) & 
+            (dataframe['volume'] < (dataframe['volume_mean'] * 1.2))             
+        )
+
+        # Cấu trúc nến cơ bản
+        is_green_candle = dataframe['close'] > dataframe['open']
+        is_red_candle = dataframe['close'] < dataframe['open']
+
+        # 2. MACD HỘI TỤ + CẠN CUNG (Dành cho lệnh LONG)
         macd_reversal_long = (
             (dataframe['macdhist'] > dataframe['macdhist'].shift(1)) & 
             (dataframe['macdhist'].shift(1) < dataframe['macdhist'].shift(2)) &
-            (dataframe['close'] > dataframe['ema_7']) # Xác nhận nến đã xanh và nảy lên
+            (dataframe['close'] > dataframe['ema_7']) & 
+            is_green_candle &
+            stealth_volume
         )
         
+        # 3. MACD PHÂN KỲ + THIẾU CẦU (Dành cho lệnh SHORT)
         macd_reversal_short = (
             (dataframe['macdhist'] < dataframe['macdhist'].shift(1)) & 
             (dataframe['macdhist'].shift(1) > dataframe['macdhist'].shift(2)) &
-            (dataframe['close'] < dataframe['ema_7']) # Xác nhận nến đã đỏ và gãy xuống
+            (dataframe['close'] < dataframe['ema_7']) &
+            is_red_candle &
+            stealth_volume
         )
 
         # 🎯 BOS SNIPER - TỐI ƯU HÓA BẮT ĐÁY (BOTTOM FISHER)
         long_bos_cond = (
             common_cond & risk_filter & 
-            (dataframe['close'] > dataframe['vwap_24h']) & # Vẫn giữ VWAP làm khiên bảo vệ
-            macd_reversal_long &   # Sử dụng Tín hiệu bắt đáy MACD
+            (dataframe['close'] > dataframe['vwap_24h']) & # Thuận dòng tiền tổ chức
+            macd_reversal_long &   
             no_fomo_long &         
-            (dataframe[predict_col] > 0.002) # Hạ ngưỡng AI xuống cực thấp (0.2%) để không cản trở nhịp nảy
+            (dataframe[predict_col] > 0.002) 
         )
 
         short_bos_cond = (
             common_cond & risk_filter & 
-            (dataframe['close'] < dataframe['vwap_24h']) & 
+            (dataframe['close'] < dataframe['vwap_24h']) & # Thuận dòng tiền tổ chức
             macd_reversal_short & 
             no_fomo_short & 
             (dataframe[predict_col] < -0.002)
@@ -214,27 +215,25 @@ class WolfStrategy(IStrategy):
         dataframe.loc[short_bos_cond, ['enter_short', 'enter_tag']] = (1, 'short_bos_sniper')
 
         # ==========================================
-        # 🧭 V6.2 X-RAY TELEMETRY (SÁT THỦ BẮT ĐÁY)
+        # 🧭 V6.3 X-RAY TELEMETRY (SÁT THỦ ĐÁNH CHẶN)
         # ==========================================
         if True:
             curr_close = dataframe['close'].iloc[last_idx]
             curr_vwap = dataframe['vwap_24h'].iloc[last_idx]
             curr_rsi = dataframe['rsi'].iloc[last_idx]
             
-            # Khung xu hướng vẫn mượn EMA 7 và 25 để xác định vị thế
             is_up = dataframe['ema_7'].iloc[last_idx] > dataframe['ema_25'].iloc[last_idx]
             is_down = dataframe['ema_7'].iloc[last_idx] < dataframe['ema_25'].iloc[last_idx]
             
             ai_score = dataframe[predict_col].iloc[last_idx] if predict_col in dataframe.columns else 0.0
             
             logger.warning(f"")
-            logger.warning(f"========== 🧭 V6.2 X-RAY (SÁT THỦ BẮT ĐÁY): TÌNH TRẠNG BOT ({metadata['pair']}) 🧭 ==========")
+            logger.warning(f"========== 🧭 V6.3 X-RAY (SÁT THỦ ĐÁNH CHẶN): TÌNH TRẠNG BOT ({metadata['pair']}) 🧭 ==========")
             
             if is_up:
-                # LUỒNG UPTREND -> TÌM ĐÁY MUA LÊN (LONG)
                 vwap_ok = "✅ THỎA MÃN (Giá > VWAP 24h)" if curr_close > curr_vwap else "🔴 BỊ PHỦ QUYẾT (Ngược dòng tiền)"
                 fomo_ok = f"✅ CHỜ ĐIỀU CHỈNH (RSI: {curr_rsi:.1f})" if no_fomo_long.iloc[last_idx] else f"🔴 QUÁ NÓNG/ĐU ĐỈNH (RSI: {curr_rsi:.1f})"
-                macd_long_ok = "🔥 TẠO ĐÁY CHỮ V (MACD ngóc lên)" if macd_reversal_long.iloc[last_idx] else "⏳ CHỜ MACD TẠO ĐÁY"
+                macd_long_ok = "🔥 CẠN CUNG XÁC NHẬN (Nến xanh + Vol thấp)" if macd_reversal_long.iloc[last_idx] else "⏳ CHỜ MACD TẠO ĐÁY / CẠN CUNG"
                 ai_ok = "✅ THỎA MÃN (> 0.002)" if ai_score > 0.002 else "🔴 BỊ PHỦ QUYẾT (Kỳ vọng lợi nhuận thấp)"
                 
                 logger.warning(f"► 1. TỐC ĐỘ CAO (15m): 🟢 UPTREND (EMA 7 > 25) -> CANH LỆNH [LONG] 🚀")
@@ -244,10 +243,9 @@ class WolfStrategy(IStrategy):
                 logger.warning(f"► 5. BỘ NÃO AI: {ai_ok} | Điểm hiện tại: {ai_score:.4f}")
                 
             elif is_down:
-                # LUỒNG DOWNTREND -> TÌM ĐỈNH BÁN XUỐNG (SHORT)
                 vwap_ok = "✅ THỎA MÃN (Giá < VWAP 24h)" if curr_close < curr_vwap else "🔴 BỊ PHỦ QUYẾT (Ngược dòng tiền)"
                 fomo_ok = f"✅ CHỜ ĐIỀU CHỈNH (RSI: {curr_rsi:.1f})" if no_fomo_short.iloc[last_idx] else f"🔴 QUÁ LẠNH/ĐU ĐÁY (RSI: {curr_rsi:.1f})"
-                macd_short_ok = "🩸 TẠO ĐỈNH THÀNH CÔNG (MACD cắm mỏ)" if macd_reversal_short.iloc[last_idx] else "⏳ CHỜ MACD TẠO ĐỈNH"
+                macd_short_ok = "🩸 THIẾU CẦU XÁC NHẬN (Nến đỏ + Vol thấp)" if macd_reversal_short.iloc[last_idx] else "⏳ CHỜ MACD TẠO ĐỈNH / THIẾU CẦU"
                 ai_ok = "✅ THỎA MÃN (< -0.002)" if ai_score < -0.002 else "🔴 BỊ PHỦ QUYẾT (Kỳ vọng lợi nhuận thấp)"
                 
                 logger.warning(f"► 1. TỐC ĐỘ CAO (15m): 🔴 DOWNTREND (EMA 7 < 25) -> CANH LỆNH [SHORT] 🩸")
@@ -257,7 +255,6 @@ class WolfStrategy(IStrategy):
                 logger.warning(f"► 5. BỘ NÃO AI: {ai_ok} | Điểm hiện tại: {ai_score:.4f}")
                 
             else:
-                # LUỒNG SIDEWAY
                 logger.warning(f"► 1. TỐC ĐỘ CAO (15m): 🟡 SIDEWAY (EMA 7 chập EMA 25) -> BOT ĐI NGỦ 💤")
             
             logger.warning(f"===========================================================")
