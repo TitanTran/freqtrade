@@ -555,7 +555,7 @@ class FreqtradeBot(LoggingMixin):
                     if trade.base_currency
                     else 0
                 )
-                if total < trade.amount:
+                if total < trade.amount or (total == 0 and trade.amount == 0):
                     if trade.fully_canceled_entry_order_count == len(trade.orders):
                         logger.warning(
                             f"Trade only had fully canceled entry orders. "
@@ -2421,7 +2421,10 @@ class FreqtradeBot(LoggingMixin):
     def handle_protections(self, pair: str, side: LongShort) -> None:
         # Lock pair for one candle to prevent immediate re-entries
         self.strategy.lock_pair(pair, datetime.now(UTC), reason="Auto lock", side=side)
-        prot_trig = self.protections.stop_per_pair(pair, side=side)
+        starting_balance = self.wallets.get_starting_balance()
+        prot_trig = self.protections.stop_per_pair(
+            pair, side=side, starting_balance=starting_balance
+        )
         if prot_trig:
             msg: RPCProtectionMsg = {
                 "type": RPCMessageType.PROTECTION_TRIGGER,
@@ -2430,7 +2433,7 @@ class FreqtradeBot(LoggingMixin):
             }
             self.rpc.send_msg(msg)
 
-        prot_trig_glb = self.protections.global_stop(side=side)
+        prot_trig_glb = self.protections.global_stop(side=side, starting_balance=starting_balance)
         if prot_trig_glb:
             msg = {
                 "type": RPCMessageType.PROTECTION_TRIGGER_GLOBAL,

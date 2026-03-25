@@ -73,6 +73,7 @@ from freqtrade.exchange.exchange_types import (
     CcxtPosition,
     FtHas,
     FundingRate,
+    LeverageTier,
     OHLCVResponse,
     OrderBook,
     Ticker,
@@ -105,7 +106,7 @@ from freqtrade.misc import (
     file_dump_json,
     file_load_json,
     safe_value_fallback,
-    safe_value_fallback2,
+    safe_value_nested,
 )
 from freqtrade.util import FtTTLCache, PeriodicCache, dt_from_ts, dt_now
 from freqtrade.util.datetime_helpers import dt_humanize_delta, dt_ts, format_ms_time
@@ -195,29 +196,30 @@ class Exchange:
         self._exchange_ws: ExchangeWS | None = None
         self._markets: dict = {}
         self._trading_fees: dict[str, Any] = {}
-        self._leverage_tiers: dict[str, list[dict]] = {}
+        self._leverage_tiers: dict[str, list[LeverageTier]] = {}
         # Lock event loop. This is necessary to avoid race-conditions when using force* commands
         # Due to funding fee fetching.
         self._loop_lock = Lock()
         self.loop = self._init_async_loop()
-        self._config: Config = {}
+        self._config: Config = config
 
         # Leverage properties
         self.trading_mode: TradingMode = TradingMode(
-            config.get("trading_mode", self._supported_trading_mode_margin_pairs[0][0])
+            self._config.get("trading_mode", self._supported_trading_mode_margin_pairs[0][0])
         )
         self.margin_mode: MarginMode = MarginMode(
-            MarginMode(config.get("margin_mode"))
-            if config.get("margin_mode")
+            self._config["margin_mode"]
+            if self._config.get("margin_mode")
             else self._supported_trading_mode_margin_pairs[0][1]
         )
-        config["trading_mode"] = self.trading_mode
-        config["margin_mode"] = self.margin_mode
-        config["candle_type_def"] = CandleType.get_default(self.trading_mode)
-        self._config.update(config)
-        self.liquidation_buffer = config.get("liquidation_buffer", 0.05)
+        self._config["trading_mode"] = self.trading_mode
+        self._config["margin_mode"] = self.margin_mode
+        self._config["candle_type_def"] = CandleType.get_default(self.trading_mode)
+        self.liquidation_buffer = self._config.get("liquidation_buffer", 0.05)
 
-        exchange_conf: ExchangeConfig = exchange_config if exchange_config else config["exchange"]
+        exchange_conf: ExchangeConfig = (
+            exchange_config if exchange_config else self._config["exchange"]
+        )
 
         # Deep merge ft_has with default ft_has options
         # Must be called before ft_has is used.
@@ -248,14 +250,14 @@ class Exchange:
         # Holds all open sell orders for dry_run
         self._dry_run_open_orders: dict[str, Any] = {}
 
-        if config["dry_run"]:
+        if self._config["dry_run"]:
             logger.info("Instance is running with dry_run enabled")
         logger.info(f"Using CCXT {ccxt.__version__}")
 
         # Don't remove exchange credentials for dry-run or if always_require_api_keys is set
         remove_exchange_credentials(
             exchange_conf,
-            not self._ft_has["always_require_api_keys"] and config.get("dry_run", False),
+            not self._ft_has["always_require_api_keys"] and self._config.get("dry_run", False),
         )
         self.log_responses = exchange_conf.get("log_responses", False)
 
@@ -296,7 +298,7 @@ class Exchange:
         if validate:
             # Initial markets load
             self.reload_markets(True, load_leverage_tiers=False)
-            self.validate_config(config)
+            self.validate_config(self._config)
 
         if self.trading_mode != TradingMode.SPOT and load_leverage_tiers:
             self.fill_leverage_tiers()
@@ -312,10 +314,19 @@ class Exchange:
         if self._exchange_ws:
             self._exchange_ws.cleanup()
         logger.debug("Exchange object destroyed, closing async loop")
+        try:
+            generic_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            generic_loop = None
+        loop_running = (getattr(self, "loop", None) and self.loop.is_running()) or (
+            generic_loop is not None and generic_loop.is_running()
+        )
+
         if (
             getattr(self, "_api_async", None)
             and inspect.iscoroutinefunction(self._api_async.close)
             and self._api_async.session
+            and not loop_running
         ):
             logger.debug("Closing async ccxt session.")
             self.loop.run_until_complete(self._api_async.close())
@@ -323,6 +334,7 @@ class Exchange:
             self._ws_async
             and inspect.iscoroutinefunction(self._ws_async.close)
             and self._ws_async.session
+            and not loop_running
         ):
             logger.debug("Closing ws ccxt session.")
             self.loop.run_until_complete(self._ws_async.close())
@@ -480,7 +492,7 @@ class Exchange:
     def _log_exchange_response(self, endpoint: str, response, *, add_info=None) -> None:
         """Log exchange responses"""
         if self.log_responses:
-            add_info_str = "" if add_info is None else f" {add_info}: "
+            add_info_str = "" if add_info is None else f"{add_info}: "
             logger.info(f"API {endpoint}: {add_info_str}{response}")
 
     def ohlcv_candle_limit(
@@ -981,12 +993,12 @@ class Exchange:
              swap.linear.fetchOHLCV.limit
         """
         feat = (
-            self._api_async.features.get("spot", {})
+            safe_value_nested(self._api_async.features, "spot", {})
             if market_type == "spot"
-            else self._api_async.features.get("swap", {}).get("linear", {})
+            else safe_value_nested(self._api_async.features, "swap.linear", {})
         )
 
-        return feat.get(endpoint, {}).get(attribute, default)
+        return safe_value_nested(feat, f"{endpoint}.{attribute}", default)
 
     def get_precision_amount(self, pair: str) -> float | None:
         """
@@ -1155,7 +1167,7 @@ class Exchange:
         orderbook: OrderBook | None = None
         if self.exchange_has("fetchL2OrderBook"):
             orderbook = self.fetch_l2_order_book(pair, 20)
-        if ordertype == "limit" and orderbook:
+        if not stop_loss and ordertype == "limit" and orderbook:
             # Allow a 1% price difference
             allowed_diff = 0.01
             if self._dry_is_price_crossed(pair, side, rate, orderbook, allowed_diff):
@@ -1292,6 +1304,7 @@ class Exchange:
         Check dry-run limit order fill and update fee (if it filled).
         """
         if order["status"] != "closed" and order.get("ft_order_type") == "stoploss":
+            # Stoploss branch
             pair = order["symbol"]
             if not orderbook and self.exchange_has("fetchL2OrderBook"):
                 orderbook = self.fetch_l2_order_book(pair, 20)
@@ -1299,6 +1312,11 @@ class Exchange:
             crossed = self._dry_is_price_crossed(
                 pair, order["side"], price, orderbook, is_stop=True
             )
+            if crossed and immediate:
+                raise InvalidOrderException(
+                    "Could not create dry stoploss order. Stoploss would trigger immediately."
+                )
+
             if crossed:
                 average = self.get_dry_market_fill_price(
                     pair,
@@ -1827,16 +1845,16 @@ class Exchange:
         return order
 
     @retrier
-    def get_balances(self) -> CcxtBalances:
+    def get_balances(self, params: dict | None = None) -> CcxtBalances:
         try:
-            balances = self._api.fetch_balance()
+            balances = self._api.fetch_balance(params or {})
             # Remove additional info from ccxt results
             balances.pop("info", None)
             balances.pop("free", None)
             balances.pop("total", None)
             balances.pop("used", None)
 
-            self._log_exchange_response("fetch_balance", balances)
+            self._log_exchange_response("fetch_balance", balances, add_info=params)
             return balances
         except ccxt.DDoSProtection as e:
             raise DDosProtection(e) from e
@@ -1848,7 +1866,9 @@ class Exchange:
             raise OperationalException(e) from e
 
     @retrier
-    def fetch_positions(self, pair: str | None = None) -> list[CcxtPosition]:
+    def fetch_positions(
+        self, pair: str | None = None, params: dict | None = None
+    ) -> list[CcxtPosition]:
         """
         Fetch positions from the exchange.
         If no pair is given, all positions are returned.
@@ -1860,7 +1880,7 @@ class Exchange:
             symbols = None
             if pair:
                 symbols = [pair]
-            positions: list[CcxtPosition] = self._api.fetch_positions(symbols)
+            positions: list[CcxtPosition] = self._api.fetch_positions(symbols, params=params or {})
             self._log_exchange_response("fetch_positions", positions)
             return positions
         except ccxt.DDoSProtection as e:
@@ -1876,9 +1896,12 @@ class Exchange:
         orders = []
         if self.exchange_has("fetchClosedOrders"):
             orders = self._api.fetch_closed_orders(pair, since=since_ms)
-            if self.exchange_has("fetchOpenOrders"):
-                orders_open = self._api.fetch_open_orders(pair, since=since_ms)
-                orders.extend(orders_open)
+        if self.exchange_has("fetchCanceledOrders"):
+            orders_canceled = self._api.fetch_canceled_orders(pair, since=since_ms)
+            orders.extend(orders_canceled)
+        if self.exchange_has("fetchOpenOrders"):
+            orders_open = self._api.fetch_open_orders(pair, since=since_ms)
+            orders.extend(orders_open)
         return orders
 
     @retrier(retries=0)
@@ -2060,12 +2083,13 @@ class Exchange:
         """
         return self._config["stake_currency"]
 
-    def get_conversion_rate(self, coin: str, currency: str) -> float | None:
+    def get_conversion_rate(self, coin: str, currency: str, *, cached=True) -> float | None:
         """
         Quick and cached way to get conversion rate one currency to the other.
         Can then be used as "rate * amount" to convert between currencies.
         :param coin: Coin to convert
         :param currency: Currency to convert to
+        :param cached: Allow cached tickers, default True
         :returns: Conversion rate from coin to currency
         :raises: ExchangeErrors
         """
@@ -2076,13 +2100,13 @@ class Exchange:
             currency = proxy_currency
         if coin == currency:
             return 1.0
-        tickers = self.get_tickers(cached=True)
+        tickers = self.get_tickers(cached=cached)
         try:
             for pair in self.get_valid_pair_combination(coin, currency):
                 ticker: Ticker | None = tickers.get(pair, None)
                 if not ticker:
                     tickers_other: Tickers = self.get_tickers(
-                        cached=True,
+                        cached=cached,
                         market_type=(
                             TradingMode.SPOT
                             if self.trading_mode != TradingMode.SPOT
@@ -2091,7 +2115,7 @@ class Exchange:
                     )
                     ticker = tickers_other.get(pair, None)
                 if ticker:
-                    rate: float | None = safe_value_fallback2(ticker, ticker, "last", "ask", None)
+                    rate: float | None = safe_value_fallback(ticker, "last", "ask", None)
                     if rate and pair.startswith(currency) and not pair.endswith(currency):
                         rate = 1.0 / rate
                     return rate
@@ -2391,6 +2415,16 @@ class Exchange:
             raise OperationalException(e) from e
 
     def get_order_id_conditional(self, order: CcxtOrder) -> str:
+        """
+        Return order id or id_stop (for conditional orders) based on exchange settings
+
+        :param order: ccxt order dict
+        :return: correct order id
+        """
+        if self.get_option("stoploss_query_requires_stop_flag") and (
+            order["type"] in ("stoploss", "stop")
+        ):
+            return safe_value_fallback(order, "id_stop", "id")
         return order["id"]
 
     @retrier
@@ -2550,7 +2584,13 @@ class Exchange:
                 )
             )
         logger.debug(f"Downloaded data for {pair} from ccxt with length {len(data)}.")
-        return ohlcv_to_dataframe(data, timeframe, pair, fill_missing=False, drop_incomplete=True)
+        # funding_rates are always complete, so never need to be dropped.
+        drop_incomplete = (
+            self._ohlcv_partial_candle if candle_type != CandleType.FUNDING_RATE else False
+        )
+        return ohlcv_to_dataframe(
+            data, timeframe, pair, fill_missing=False, drop_incomplete=drop_incomplete
+        )
 
     async def _async_get_historic_ohlcv(
         self,
@@ -2876,8 +2916,11 @@ class Exchange:
         }
         pairs_to_download = [p for p in pairs if p not in candles]
         if pairs_to_download:
-            candles = self.refresh_latest_ohlcv(pairs_to_download, since_ms=since_ms, cache=False)
-            for c, val in candles.items():
+            candles_new = self.refresh_latest_ohlcv(
+                pairs_to_download, since_ms=since_ms, cache=False
+            )
+            for c, val in candles_new.items():
+                candles[c] = val
                 self._expiring_candle_cache[(c[1], since_ms)][c] = val
         return candles
 
@@ -3602,7 +3645,7 @@ class Exchange:
                 pair_tiers.append(self.parse_leverage_tier(tier))
             self._leverage_tiers[pair] = pair_tiers
 
-    def parse_leverage_tier(self, tier) -> dict:
+    def parse_leverage_tier(self, tier) -> LeverageTier:
         info = tier.get("info", {})
         return {
             "minNotional": tier["minNotional"],
@@ -3643,7 +3686,11 @@ class Exchange:
             for tier in pair_tiers:
                 # Adjust notional by leverage to do a proper comparison
                 min_stake = tier["minNotional"] / (prior_max_lev or tier["maxLeverage"])
-                max_stake = tier["maxNotional"] / tier["maxLeverage"]
+                max_stake = (
+                    tier["maxNotional"] / tier["maxLeverage"]
+                    if tier["maxNotional"] is not None
+                    else float("inf")
+                )
                 prior_max_lev = tier["maxLeverage"]
                 if min_stake <= stake_amount <= max_stake:
                     return tier["maxLeverage"]
@@ -3887,7 +3934,6 @@ class Exchange:
         is_short: bool,
         open_date: datetime,
         close_date: datetime,
-        time_in_ratio: float | None = None,
     ) -> float:
         """
         calculates the sum of all funding fees that occurred for a pair during a futures trade
@@ -3897,7 +3943,6 @@ class Exchange:
         :param is_short: trade direction
         :param open_date: The date and time that the trade started
         :param close_date: The date and time that the trade ended
-        :param time_in_ratio: Not used by most exchange classes
         """
         fees: float = 0
 

@@ -296,7 +296,7 @@ def calculate_cagr(days_passed: int, starting_balance: float, final_balance: flo
     :param final_balance: Final balance to calculate CAGR against
     :return: CAGR
     """
-    if final_balance < 0:
+    if (final_balance < 0) or (starting_balance <= 0) or (days_passed <= 0):
         # With leveraged trades, final_balance can become negative.
         return 0
     return (final_balance / starting_balance) ** (1 / (days_passed / 365)) - 1
@@ -334,7 +334,10 @@ def calculate_expectancy(trades: pd.DataFrame) -> tuple[float, float]:
 
 
 def calculate_sortino(
-    trades: pd.DataFrame, min_date: datetime, max_date: datetime, starting_balance: float
+    trades: pd.DataFrame,
+    min_date: datetime | None,
+    max_date: datetime | None,
+    starting_balance: float,
 ) -> float:
     """
     Calculate sortino
@@ -362,7 +365,10 @@ def calculate_sortino(
 
 
 def calculate_sharpe(
-    trades: pd.DataFrame, min_date: datetime, max_date: datetime, starting_balance: float
+    trades: pd.DataFrame,
+    min_date: datetime | None,
+    max_date: datetime | None,
+    starting_balance: float,
 ) -> float:
     """
     Calculate sharpe
@@ -389,7 +395,10 @@ def calculate_sharpe(
 
 
 def calculate_calmar(
-    trades: pd.DataFrame, min_date: datetime, max_date: datetime, starting_balance: float
+    trades: pd.DataFrame,
+    min_date: datetime | None,
+    max_date: datetime | None,
+    starting_balance: float,
 ) -> float:
     """
     Calculate calmar
