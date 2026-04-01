@@ -2,7 +2,8 @@ services:
   freqtrade:
     # 1. ĐỔI IMAGE SANG PHIÊN BẢN RL (Có sẵn PyTorch)
     image: freqtradeorg/freqtrade:stable_freqairl
-    
+    command: trade --config user_data/strategies/WolfStrategy/config.json --strategy WolfStrategy --freqaimodel XGBoostRegressor
+
     # (Các dòng volumes, ports... ở giữa giữ nguyên không đụng tới)
     restart: unless-stopped
     container_name: freqtrade
@@ -10,7 +11,7 @@ services:
       - "./user_data:/freqtrade/user_data"
     ports:
       - "127.0.0.1:8080:8080"
-    
+
     # 2. THÊM KHỐI DEPLOY ĐỂ THÔNG MẠCH CHO GPU RTX 4070 Ti
     deploy:
       resources:
@@ -18,4 +19,4 @@ services:
           devices:
             - driver: nvidia
               count: 1
-              capabilities: [gpu]
+              capabilities: [ gpu ]
