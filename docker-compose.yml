@@ -2,7 +2,7 @@ services:
   freqtrade:
     # 1. ĐỔI IMAGE SANG PHIÊN BẢN RL (Có sẵn PyTorch)
     image: freqtradeorg/freqtrade:stable_freqairl
-    command: trade --config user_data/strategies/WolfStrategy/config.json --strategy WolfStrategy --freqaimodel XGBoostRegressor
+    command: trade --config user_data/strategies/WolfStrategy/config.json --strategy-path user_data/strategies/WolfStrategy --strategy WolfStrategy --freqaimodel XGBoostRegressor
 
     # (Các dòng volumes, ports... ở giữa giữ nguyên không đụng tới)
     restart: unless-stopped

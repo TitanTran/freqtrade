@@ -1,0 +1,4 @@
+Min Open Date: 2026-02-12 21:45:05
+Max Open Date: 2026-04-05 14:45:12
+Min Close Date: 2026-02-12 21:56:28
+Max Close Date: 2026-04-06 05:57:08

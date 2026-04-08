@@ -1,0 +1,150 @@
+2026-04-08 21:00:47,102 - freqtrade.data.dataprovider - INFO - Loading data for BNB/USDT:USDT 1h from 2026-01-27 04:00:00 to 2026-04-08 00:00:00
+2026-04-08 21:00:47,122 - freqtrade.freqai.freqai_interface - INFO - Training 8 timeranges
+2026-04-08 21:00:47,123 - freqtrade.freqai.freqai_interface - INFO - Training BNB/USDT:USDT, 2/2 pairs from 2026-01-28 00:00:00 to 2026-02-12 00:00:00, 1/8 trains
+2026-04-08 21:00:47,124 - freqtrade.freqai.data_kitchen - INFO - Found backtesting prediction file at 
+D:\PYTHON\freqtrade\user_data\models\wolf_mtf_v6_15m\backtesting_predictions\cb_bnb_1770854400_prediction.feather
+2026-04-08 21:00:47,141 - freqtrade.freqai.freqai_interface - INFO - Training BNB/USDT:USDT, 2/2 pairs from 2026-02-04 00:00:00 to 2026-02-19 00:00:00, 2/8 trains
+2026-04-08 21:00:47,142 - freqtrade.freqai.data_kitchen - INFO - Found backtesting prediction file at 
+D:\PYTHON\freqtrade\user_data\models\wolf_mtf_v6_15m\backtesting_predictions\cb_bnb_1771459200_prediction.feather
+2026-04-08 21:00:47,143 - freqtrade.freqai.freqai_interface - INFO - Training BNB/USDT:USDT, 2/2 pairs from 2026-02-11 00:00:00 to 2026-02-26 00:00:00, 3/8 trains
+2026-04-08 21:00:47,145 - freqtrade.freqai.data_kitchen - INFO - Found backtesting prediction file at 
+D:\PYTHON\freqtrade\user_data\models\wolf_mtf_v6_15m\backtesting_predictions\cb_bnb_1772064000_prediction.feather
+2026-04-08 21:00:47,146 - freqtrade.freqai.freqai_interface - INFO - Training BNB/USDT:USDT, 2/2 pairs from 2026-02-18 00:00:00 to 2026-03-05 00:00:00, 4/8 trains
+2026-04-08 21:00:47,147 - freqtrade.freqai.data_kitchen - INFO - Found backtesting prediction file at 
+D:\PYTHON\freqtrade\user_data\models\wolf_mtf_v6_15m\backtesting_predictions\cb_bnb_1772668800_prediction.feather
+2026-04-08 21:00:47,149 - freqtrade.freqai.freqai_interface - INFO - Training BNB/USDT:USDT, 2/2 pairs from 2026-02-25 00:00:00 to 2026-03-12 00:00:00, 5/8 trains
+2026-04-08 21:00:47,150 - freqtrade.freqai.data_kitchen - INFO - Found backtesting prediction file at 
+D:\PYTHON\freqtrade\user_data\models\wolf_mtf_v6_15m\backtesting_predictions\cb_bnb_1773273600_prediction.feather
+2026-04-08 21:00:47,151 - freqtrade.freqai.freqai_interface - INFO - Training BNB/USDT:USDT, 2/2 pairs from 2026-03-04 00:00:00 to 2026-03-19 00:00:00, 6/8 trains
+2026-04-08 21:00:47,152 - freqtrade.freqai.data_kitchen - INFO - Found backtesting prediction file at 
+D:\PYTHON\freqtrade\user_data\models\wolf_mtf_v6_15m\backtesting_predictions\cb_bnb_1773878400_prediction.feather
+2026-04-08 21:00:47,154 - freqtrade.freqai.freqai_interface - INFO - Training BNB/USDT:USDT, 2/2 pairs from 2026-03-11 00:00:00 to 2026-03-26 00:00:00, 7/8 trains
+2026-04-08 21:00:47,155 - freqtrade.freqai.data_kitchen - INFO - Found backtesting prediction file at 
+D:\PYTHON\freqtrade\user_data\models\wolf_mtf_v6_15m\backtesting_predictions\cb_bnb_1774483200_prediction.feather
+2026-04-08 21:00:47,156 - freqtrade.freqai.freqai_interface - INFO - Training BNB/USDT:USDT, 2/2 pairs from 2026-03-18 00:00:00 to 2026-04-02 00:00:00, 8/8 trains
+2026-04-08 21:00:47,157 - freqtrade.freqai.data_kitchen - INFO - Found backtesting prediction file at 
+D:\PYTHON\freqtrade\user_data\models\wolf_mtf_v6_15m\backtesting_predictions\cb_bnb_1775088000_prediction.feather
+2026-04-08 21:00:47,166 - freqtrade.optimize.backtesting - INFO - Backtesting with data from 2026-02-12 00:00:00 up to 2026-04-08 00:00:00 (55 days).
+2026-04-08 21:00:47,171 - WolfStrategy - WARNING - 
+2026-04-08 21:00:47,172 - WolfStrategy - WARNING - ========== \U0001f9ed X-RAY RADAR: BOT STATUS (BTC/USDT:USDT) \U0001f9ed ==========
+2026-04-08 21:00:47,172 - WolfStrategy - WARNING - \u25ba 1. HIGH-SPEED TREND (15m): \U0001f7e2 UPTREND (EMA 7 > 25) -> SEARCHING [LONG] \U0001f680
+2026-04-08 21:00:47,172 - WolfStrategy - WARNING - \u25ba 2. VWAP REFEREE          : \u2705 VALID (Price > VWAP 24h) | Live: 71930.00 / VWAP: 69569.01
+2026-04-08 21:00:47,172 - WolfStrategy - WARNING - \u25ba 3. ANTI-FOMO             : \u2705 SAFE (RSI: 72.2)
+2026-04-08 21:00:47,173 - WolfStrategy - WARNING - \u25ba 4. ENTRY TRIGGER         : \u23f3 WAITING EMA 7 CROSS 25 / STRONG SUPPLY
+2026-04-08 21:00:47,173 - WolfStrategy - WARNING - \u25ba 5. OBV COMPASS           : \u2705 VALID (OBV Pumping)
+2026-04-08 21:00:47,173 - WolfStrategy - WARNING - \u25ba 6. AI BRAIN              : \U0001f534 REJECTED (Low AI Score) | Score: 0.0000
+2026-04-08 21:00:47,173 - WolfStrategy - WARNING - ===========================================================
+2026-04-08 21:00:47,184 - WolfStrategy - WARNING - 
+2026-04-08 21:00:47,185 - WolfStrategy - WARNING - ========== \U0001f9ed X-RAY RADAR: BOT STATUS (BNB/USDT:USDT) \U0001f9ed ==========
+2026-04-08 21:00:47,185 - WolfStrategy - WARNING - \u25ba 1. HIGH-SPEED TREND (15m): \U0001f7e2 UPTREND (EMA 7 > 25) -> SEARCHING [LONG] \U0001f680
+2026-04-08 21:00:47,185 - WolfStrategy - WARNING - \u25ba 2. VWAP REFEREE          : \u2705 VALID (Price > VWAP 24h) | Live: 620.14 / VWAP: 605.84
+2026-04-08 21:00:47,185 - WolfStrategy - WARNING - \u25ba 3. ANTI-FOMO             : \u2705 SAFE (RSI: 67.7)
+2026-04-08 21:00:47,185 - WolfStrategy - WARNING - \u25ba 4. ENTRY TRIGGER         : \u23f3 WAITING EMA 7 CROSS 25 / STRONG SUPPLY
+2026-04-08 21:00:47,186 - WolfStrategy - WARNING - \u25ba 5. OBV COMPASS           : \U0001f534 REJECTED (Smart Money Dumping)
+2026-04-08 21:00:47,186 - WolfStrategy - WARNING - \u25ba 6. AI BRAIN              : \U0001f534 REJECTED (Low AI Score) | Score: 0.0000
+2026-04-08 21:00:47,186 - WolfStrategy - WARNING - ===========================================================
+2026-04-08 21:00:47,613 - freqtrade.misc - INFO - dumping json to "D:\PYTHON\freqtrade\user_data\backtest_results\backtest-result-2026-04-08_21-00-47.meta.json"
+Result for strategy WolfStrategy
+                                                BACKTESTING REPORT                                                
++----------------------------------------------------------------------------------------------------------------+
+|          Pair | Trades | Avg Profit % | Tot Profit USDT | Tot Profit % | Avg Duration |  Win  Draw  Loss  Win% |
+|---------------+--------+--------------+-----------------+--------------+--------------+------------------------|
+| BNB/USDT:USDT |     13 |         1.45 |         187.744 |        18.77 |      3:23:00 |    8     0     5  61.5 |
+| BTC/USDT:USDT |     17 |         0.35 |          54.152 |         5.42 |      2:58:00 |    8     0     9  47.1 |
+|         TOTAL |     30 |         0.83 |         241.896 |        24.19 |      3:09:00 |   16     0    14  53.3 |
++----------------------------------------------------------------------------------------------------------------+
+                                         LEFT OPEN TRADES REPORT                                          
++--------------------------------------------------------------------------------------------------------+
+|  Pair | Trades | Avg Profit % | Tot Profit USDT | Tot Profit % | Avg Duration |  Win  Draw  Loss  Win% |
+|-------+--------+--------------+-----------------+--------------+--------------+------------------------|
+| TOTAL |      0 |          0.0 |           0.000 |          0.0 |         0:00 |    0     0     0     0 |
++--------------------------------------------------------------------------------------------------------+
+                                                   ENTER TAG STATS                                                    
++--------------------------------------------------------------------------------------------------------------------+
+|        Enter Tag | Entries | Avg Profit % | Tot Profit USDT | Tot Profit % | Avg Duration |  Win  Draw  Loss  Win% |
+|------------------+---------+--------------+-----------------+--------------+--------------+------------------------|
+| short_bos_sniper |      21 |         1.17 |         269.952 |         27.0 |      3:26:00 |   12     0     9  57.1 |
+|  long_bos_sniper |       9 |         0.03 |         -28.056 |        -2.81 |      2:28:00 |    4     0     5  44.4 |
+|            TOTAL |      30 |         0.83 |         241.896 |        24.19 |      3:09:00 |   16     0    14  53.3 |
++--------------------------------------------------------------------------------------------------------------------+
+                                                  EXIT REASON STATS                                                   
++--------------------------------------------------------------------------------------------------------------------+
+|        Exit Reason | Exits | Avg Profit % | Tot Profit USDT | Tot Profit % | Avg Duration |  Win  Draw  Loss  Win% |
+|--------------------+-------+--------------+-----------------+--------------+--------------+------------------------|
+|                roi |    12 |          5.1 |         747.076 |        74.71 |      3:36:00 |   12     0     0   100 |
+| trailing_stop_loss |    18 |        -2.02 |        -505.180 |       -50.52 |      2:51:00 |    4     0    14  22.2 |
+|              TOTAL |    30 |         0.83 |         241.896 |        24.19 |      3:09:00 |   16     0    14  53.3 |
++--------------------------------------------------------------------------------------------------------------------+
+                                                             MIXED TAG STATS                                                              
++----------------------------------------------------------------------------------------------------------------------------------------+
+|        Enter Tag |        Exit Reason | Trades | Avg Profit % | Tot Profit USDT | Tot Profit % | Avg Duration |  Win  Draw  Loss  Win% |
+|------------------+--------------------+--------+--------------+-----------------+--------------+--------------+------------------------|
+| short_bos_sniper |                roi |      9 |         5.14 |         576.594 |        57.66 |      3:12:00 |    9     0     0   100 |
+|  long_bos_sniper |                roi |      3 |          5.0 |         170.483 |        17.05 |      4:50:00 |    3     0     0   100 |
+|  long_bos_sniper | trailing_stop_loss |      6 |        -2.46 |        -198.538 |       -19.85 |      1:18:00 |    1     0     5  16.7 |
+| short_bos_sniper | trailing_stop_loss |     12 |        -1.81 |        -306.642 |       -30.66 |      3:38:00 |    3     0     9  25.0 |
+|            TOTAL |                    |     30 |         0.83 |         241.896 |        24.19 |      3:09:00 |   16     0    14  53.3 |
++----------------------------------------------------------------------------------------------------------------------------------------+
+                         SUMMARY METRICS                          
++----------------------------------------------------------------+
+| Metric                        | Value                          |
+|-------------------------------+--------------------------------|
+| Backtesting from              | 2026-02-12 00:00:00            |
+| Backtesting to                | 2026-04-08 00:00:00            |
+| Trading Mode                  | Isolated Futures               |
+| Max open trades               | 1                              |
+|                               |                                |
+| Total/Daily Avg Trades        | 30 / 0.55                      |
+| Starting balance              | 1000 USDT                      |
+| Final balance                 | 1241.896 USDT                  |
+| Absolute profit               | 241.896 USDT                   |
+| Total profit %                | 24.19%                         |
+| CAGR %                        | 321.10%                        |
+| Sortino                       | 4.92                           |
+| Sharpe                        | 1.45                           |
+| Calmar                        | 35.15                          |
+| SQN                           | 0.75                           |
+| Profit factor                 | 1.35                           |
+| Expectancy (Ratio)            | 8.06 (0.16)                    |
+| Avg. daily profit             | 4.398 USDT                     |
+| Avg. stake amount             | 1298.302 USDT                  |
+| Total trade volume            | 389307.37 USDT                 |
+|                               |                                |
+| Long / Short trades           | 9 / 21                         |
+| Long / Short profit %         | -2.81% / 27.00%                |
+| Long / Short profit USDT      | -28.056 / 269.952              |
+|                               |                                |
+| Best Pair                     | BNB/USDT:USDT 18.77%           |
+| Worst Pair                    | BTC/USDT:USDT 5.42%            |
+| Best trade                    | BTC/USDT:USDT 9.18%            |
+| Worst trade                   | BTC/USDT:USDT -5.46%           |
+| Best day                      | 123.475 USDT                   |
+| Worst day                     | -150.327 USDT                  |
+| Days win/draw/lose            | 13 / 28 / 12                   |
+| Min/Max/Avg. Duration Winners | 0d 00:15 / 0d 10:45 / 0d 02:54 |
+| Min/Max/Avg. Duration Losers  | 0d 00:00 / 0d 21:30 / 0d 03:26 |
+| Max Consecutive Wins / Loss   | 6 / 5                          |
+| Rejected Entry signals        | 1                              |
+| Entry/Exit Timeouts           | 0 / 0                          |
+|                               |                                |
+| Min balance                   | 1049.219 USDT                  |
+| Max balance                   | 1555.125 USDT                  |
+| Max % of account underwater   | 23.91%                         |
+| Absolute drawdown             | 371.759 USDT (23.91%)          |
+| Drawdown duration             | 27 days 15:30:00               |
+| Profit at drawdown start      | 555.125 USDT                   |
+| Profit at drawdown end        | 183.366 USDT                   |
+| Drawdown start                | 2026-03-07 19:15:00            |
+| Drawdown end                  | 2026-04-04 10:45:00            |
+| Market change                 | 4.15%                          |
++----------------------------------------------------------------+
+
+Backtested 2026-02-12 00:00:00 -> 2026-04-08 00:00:00 | Max open trades : 1
+                                                            STRATEGY SUMMARY                                                            
++--------------------------------------------------------------------------------------------------------------------------------------+
+|     Strategy | Trades | Avg Profit % | Tot Profit USDT | Tot Profit % | Avg Duration |  Win  Draw  Loss  Win% |             Drawdown |
+|--------------+--------+--------------+-----------------+--------------+--------------+------------------------+----------------------|
+| WolfStrategy |     30 |         0.83 |         241.896 |        24.19 |      3:09:00 |   16     0    14  53.3 | 371.759 USDT  23.91% |
++--------------------------------------------------------------------------------------------------------------------------------------+
+2026-04-08 21:00:47,794 - ccxt.base.exchange - WARNING - binance requires to release all resources with an explicit call to the .close() coroutine. If you are using the exchange instance with async 
+coroutines, add `await exchange.close()` to your code into a place when you're done with the exchange and don't need the exchange instance anymore (at the end of your async coroutine).
