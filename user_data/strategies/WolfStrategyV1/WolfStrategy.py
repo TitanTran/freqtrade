@@ -69,9 +69,9 @@ class WolfStrategy(IStrategy):
 
         # DEFAULT TIER: Initial Stoploss (Absorb wicks via leverage multiplier)
         leverage_rate = 5.0
-        margin_risk = atr_15m_pct * 2.0 * leverage_rate
-        # Min 4% margin loss, Max 18% margin loss to stay safely under hard -0.20
-        initial_stop = max(min(margin_risk, 0.18), 0.04)
+        margin_risk = atr_15m_pct * 1.5 * leverage_rate  # V5.5: Tightened from 2.0 to 1.5 to protect $300
+        # Min 3% margin loss, Max 15% margin loss
+        initial_stop = max(min(margin_risk, 0.15), 0.03)
 
         # --- DEFENSE THRESHOLDS ---
         activation_bos = max(atr_1h_pct * 2.5 * leverage_rate, 0.04)  # Macro lock threshold
@@ -191,11 +191,11 @@ class WolfStrategy(IStrategy):
         common_cond = dataframe[predict_col].notnull()
         risk_filter = dataframe["atr"] < (dataframe["close"] * 0.025)
 
-        # ANTI-FOMO FILTERS
-        no_fomo_long = (dataframe["rsi"] < 75) & (
+        # ANTI-FOMO FILTERS (V5.5 - High Performance Armor)
+        no_fomo_long = (dataframe["rsi"] < 60) & (
             dataframe["close"] <= (dataframe["bb_upperband"] * 1.01)
         )
-        no_fomo_short = (dataframe["rsi"] > 25) & (
+        no_fomo_short = (dataframe["rsi"] > 40) & (
             dataframe["close"] >= (dataframe["bb_lowerband"] * 0.99)
         )
 
@@ -273,7 +273,7 @@ class WolfStrategy(IStrategy):
 
             logger.warning(f"")
             logger.warning(
-                f"========== 🧭 X-RAY RADAR: BOT STATUS ({metadata['pair']}) 🧭 =========="
+                f"========== 🧭 X-RAY RADAR: SNIPER V5.5 - HIGH PERFORMANCE ({metadata['pair']}) 🧭 =========="
             )
 
             if is_up:
