@@ -10,482 +10,482 @@ logger = logging.getLogger(__name__)
 
 
 class WolfStrategy(IStrategy):
+    """
+    IRON WOLF V7.0 — Smart Money Concept (SMC)
+
+    Philosophy: Think like a Market Maker, NOT a retail trader.
+    - LONG when SM sweeps liquidity at the bottom (stop hunt → accumulation)
+    - SHORT when SM sweeps liquidity at the top (stop hunt → distribution)
+    - Hold through the full wave, exit at structural reversal
+
+    Core Signals:
+    1. Liquidity Sweep (stop hunt candle) — PRIMARY signal
+    2. Break of Structure (BOS) after sweep — CONFIRMATION
+    3. Change of Character (CHoCH) — EARLY aggressive entry
+    4. Volume footprint — SM always leaves volume traces
+
+    V7.0 vs V6.0 changes:
+    - REMOVED: FreqAI as entry gate (was bearish-biased, blocked all Longs)
+    - REMOVED: EMA crossover as primary signal (lagging, follows not leads)
+    - REMOVED: 3.5% tight stoploss (was getting stop-hunted by SM)
+    - ADDED: Liquidity Sweep detection (the core SMC entry signal)
+    - ADDED: Dynamic ATR-based stoploss (below sweep low)
+    - ADDED: 4H structure-based exit (hold the full wave)
+    - WIDENED: Stoploss to -6% to survive SM stop hunts
+    """
+
     INTERFACE_VERSION = 3
-    timeframe = "15m"  # SCALPING MODE
+    timeframe = "1h"
     can_short = True
 
-    # --- V5.90: THE PROPHET WOLF (SUPER TREND) ---
-    stoploss = -0.12  # 12% price floor (60% margin) to survive MM shakeouts
-    use_custom_stoploss = False
+    # V9.0: SMC CORRECTED (x5 Leverage)
+    # Target: 15-20% ROI per trade (Price move 3-4%)
+    # Stoploss: 2-3% price move (10-15% margin risk)
+    stoploss = -0.99  # Safety net. Set wide so custom_stoploss can work correctly.
+    use_custom_stoploss = True
     trailing_stop = False
+    use_exit_signal = True
+    exit_profit_only = False
 
-    # MINIMAL ROI (V5.71 - Sovereign Mode)
-    # Vô hiệu hóa chốt lời tự động để ép Bot gồng lãi theo xu hướng 1H
-    minimal_roi = {
-        "0": 10.0      # 1000% margin profit (impossible to reach)
-    }
+    # Futures Leverage Configuration
+    def leverage(self, pair: str, current_time: datetime, current_rate: float,
+                 proposed_leverage: float, max_leverage: float, entry_tag: str,
+                 side: str, **kwargs) -> float:
+        return 5.0  # HARD-CODE X5 LEVERAGE
+
+    # Cooldown after loss
     protections = [
-        {"method": "CooldownPeriod", "stop_duration_candles": 4}  # Cool down after SL
+        {"method": "CooldownPeriod", "stop_duration_candles": 4}
     ]
 
-    def leverage(
-        self,
-        pair: str,
-        current_time: datetime,
-        current_rate: float,
-        proposed_leverage: float,
-        max_leverage: float,
-        entry_tag: str,
-        side: str,
-        **kwargs,
-    ) -> float:
-        return 5.0  # 5x Leverage
-
-    # --- VISUALIZATION CONFIGURATION ---
     plot_config = {
         "main_plot": {
-            "ema_7": {"color": "#ff5733"},   # Fast Trend (Red)
-            "ema_25": {"color": "#335bff"},  # Mid Trend (Blue)
-            "ema_50": {"color": "#33ff57"},  # Confirmation (Green)
-            "sma_200": {"color": "#ffc133"}, # Macro Safety (Orange)
-            "vwap_24h": {"color": "#ffffff"}, # Anchor (White)
+            "ema_20":            {"color": "#ff5733"},
+            "ema_50":            {"color": "#335bff"},
+            "ema_200":           {"color": "#ffc133"},
+            "recent_high":       {"color": "#00ff88"},
+            "recent_low":        {"color": "#ff0044"},
         },
         "subplots": {
-            "RSI": {
-                "rsi": {"color": "#9b33ff"}
-            },
-            "MACD": {
-                "macd": {"color": "#335bff"},
-                "macdsignal": {"color": "#ff5733"},
-                "macdhist": {"type": "bar", "color": "#808080"}
-            }
-        }
+            "RSI":    {"rsi": {"color": "#9b33ff"}},
+            "Volume": {"volume_ratio": {"type": "bar", "color": "#00d2ff"}},
+            "ADX":    {"adx": {"color": "#ff8800"}},
+            "MFI":    {"mfi": {"color": "#00ffcc"}},
+        },
     }
 
+    # ------------------------------------------------------------------
+    def leverage(self, pair, current_time, current_rate, proposed_leverage,
+                 max_leverage, entry_tag, side, **kwargs):
+        return 5.0
+
     # ==========================================
-    # --- DYNAMIC RISK MANAGEMENT (TIERED GEARBOX) ---
+    # CUSTOM STOPLOSS: ATR-based, below swing low
     # ==========================================
-    def custom_exit(self, pair: str, trade: 'Trade', current_time: datetime,
-                    current_rate: float, current_profit: float, **kwargs) -> bool:
+    def custom_stoploss(self, pair: str, trade: Trade, current_time: datetime,
+                        current_rate: float, current_profit: float, **kwargs) -> float:
         
-        # --- V5.90: PROPHET PROFIT MANAGEMENT ---
+        # V9.1: Fix "Constant Trailing Stop" bug. 
+        # Calculate static SL from open_rate.
+        # V10.0: SHARK HUNTING (Swing Mode)
+        # Wide SL to survive the market volatility: 5% price move = 25% margin risk
+        sl_pct = 0.05 if "BTC" in pair else 0.07
+        
+        # Freqtrade expects the return value relative to current_rate, but divides it by leverage.
+        # To maintain a static price-based stop loss, we calculate the exact target price.
+        if trade.trade_direction == "short":
+            target_sl_price = trade.open_rate * (1 + sl_pct)
+            return -trade.leverage * ((target_sl_price / current_rate) - 1)
+        else:
+            target_sl_price = trade.open_rate * (1 - sl_pct)
+            return -trade.leverage * (1 - (target_sl_price / current_rate))
+
+    # ==========================================
+    # CUSTOM EXIT: SMC Wave Profit Maximizer
+    # Philosophy: Let the wave run, exit when SM distributes
+    # ==========================================
+    def custom_exit(self, pair: str, trade: "Trade", current_time: datetime,
+                    current_rate: float, current_profit: float, **kwargs):
         dataframe, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
         if dataframe is None or len(dataframe) == 0:
             return False
-        last_candle = dataframe.iloc[-1]
-        
-        # 🛡️ TREND STRENGTH PROTECTION (Bảo vệ siêu xu hướng)
-        # Nếu ADX > 30, xu hướng cực mạnh -> KHÔNG ĐƯỢC THOÁT LỆNH.
-        if last_candle["adx"] > 30:
-            return False
 
-        # 1. HYPER EXHAUSTION (Chốt đỉnh bong bóng)
-        # Chỉ chốt khi lãi > 10% và hưng phấn tột độ MFI > 95
-        if current_profit > 0.10 and last_candle["mfi"] > 95:
-            return "prophet_hyper_peak"
+        last = dataframe.iloc[-1]
+        bear_sweep   = bool(last.get("bear_sweep", False))
+        bull_sweep   = bool(last.get("bull_sweep", False))
+        macro_bear   = bool(last.get("macro_bearish_4h", False))
+        macro_bull   = bool(last.get("macro_bullish_4h", False))
+        rsi          = float(last.get("rsi", 50) or 50)
+        mfi          = float(last.get("mfi", 50) or 50)
+        rsi_4h       = float(last.get("rsi_4h", 50) or 50)
+        volume_ratio = float(last.get("volume_ratio", 1.0) or 1.0)
 
-        # 2. TREND BREAK PROTECTION (Bảo vệ lãi khi gãy trend)
-        # Nếu đã lãi trên 5% nhưng giá rớt dưới EMA 25 -> Thoát
-        if current_profit > 0.05 and last_candle["close"] < last_candle["ema_25"]:
-             return "trend_break_exit"
+        if trade.trade_direction == "long":
+            # === EMERGENCY EXIT ===
+            # 4H turned bearish while we're losing: cut immediately (1.5% price move = 7.5% ROI)
+            if current_profit < -0.075 and macro_bear and rsi < 38:
+                logger.warning(f"[V9.0] {pair} LONG emergency: 4H bearish, RSI={rsi:.0f}")
+                return "smc_emergency_exit"
+
+            # === TARGET ===
+            if current_profit > 0.25:  # 25% ROI = 5% price move
+                return "target_25pct_roi"
+
+            # === PROFIT PROTECTION LADDER ===
+            # Level 1: RSI extreme overbought (>82) 
+            if current_profit > 0.15 and rsi > 82:
+                return "smc_rsi_extreme_exit"
+
+            # Level 2: RSI overbought (>75) + MFI high
+            if current_profit > 0.20 and rsi > 75 and mfi > 80:
+                return "smc_overbought_exit"
+
+            # Level 3: 4H flipped bearish (Gãy trend lớn)
+            if macro_bear:
+                if current_profit > 0.10:
+                    return "smc_4h_trend_flip_profit"
+
+        if trade.trade_direction == "short":
+            # Emergency: 4H turned bullish while losing
+            if current_profit < -0.075 and macro_bull and rsi > 62:
+                logger.warning(f"[V9.0] {pair} SHORT emergency: 4H bullish, RSI={rsi:.0f}")
+                return "smc_emergency_exit"
+
+            # === TARGET ===
+            if current_profit > 0.25:  # 25% ROI
+                return "target_25pct_roi"
+
+            # RSI extreme oversold (< 20) = SM accumulating at bottom
+            if current_profit > 0.15 and rsi < 20:
+                return "smc_rsi_extreme_exit"
+
+            # RSI oversold + MFI low = distribution finished
+            if current_profit > 0.20 and rsi < 28 and mfi < 25:
+                return "smc_oversold_exit"
+
+            # Bullish sweep at support = SM buying back in
+            if current_profit > 0.10 and bull_sweep and rsi < 35:
+                return "smc_sm_accumulation_exit"
+
+            # 4H flipped bullish while profitable
+            if current_profit > 0.10 and macro_bull:
+                return "smc_4h_trend_flip_exit"
 
         return False
 
-    # --- MULTI-DIMENSIONAL DATA PROVISIONING ---
+    # ==========================================
+    # INFORMATIVE PAIRS
+    # ==========================================
     def informative_pairs(self):
         pairs = self.dp.current_whitelist()
-        return ([(pair, "1h") for pair in pairs] + 
-                [(pair, "4h") for pair in pairs] + 
-                [(pair, "1d") for pair in pairs] + 
-                [(pair, "1w") for pair in pairs])
-
-    def feature_engineering_expand_all(
-        self, dataframe: DataFrame, period: int, metadata: dict, **kwargs
-    ) -> DataFrame:
-        dataframe["%-rsi-" + str(period)] = ta.RSI(dataframe, timeperiod=period)
-        dataframe["%-mfi-" + str(period)] = ta.MFI(dataframe, timeperiod=period)
-        dataframe["%-adx-" + str(period)] = ta.ADX(dataframe, timeperiod=period)
-
-        bb = ta.BBANDS(dataframe, timeperiod=period)
-        dataframe["%-bb_width-" + str(period)] = (bb["upperband"] - bb["lowerband"]) / bb[
-            "middleband"
-        ]
-        dataframe["%-obv-" + str(period)] = ta.OBV(dataframe["close"], dataframe["volume"])
-        dataframe["%-ad_line-" + str(period)] = ta.AD(
-            dataframe["high"], dataframe["low"], dataframe["close"], dataframe["volume"]
+        return (
+            [(pair, "1d") for pair in pairs] +
+            [(pair, "4h") for pair in pairs] +
+            [(pair, "1h") for pair in pairs]
         )
-        return dataframe
 
-    def feature_engineering_targets(
-        self, dataframe: DataFrame, metadata: dict, **kwargs
-    ) -> DataFrame:
-        horizon = 24  # Forward look 24 candles
-        future_high = dataframe["high"].rolling(horizon).max().shift(-horizon)
-        future_low = dataframe["low"].rolling(horizon).min().shift(-horizon)
-        max_gain = (future_high - dataframe["close"]) / dataframe["close"]
-        max_loss = (dataframe["close"] - future_low) / dataframe["close"]
-        dataframe["&-rr_score"] = max_gain - (max_loss * 2.0)  # Heavy penalty for risk
-        return dataframe
-
-    def set_freqai_targets(self, dataframe: DataFrame, metadata: dict, **kwargs) -> DataFrame:
-        return self.feature_engineering_targets(dataframe, metadata, **kwargs)
-
-    # --- INDICATORS & DATA CLEANSING ---
+    # ==========================================
+    # INDICATORS — SMC Framework
+    # ==========================================
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        # 1. MACRO 4H (The Tide - V5.33 Enhanced)
+
+        # ------------------------------------------------------------------
+        # 0. DAILY BIAS (1D) — The Supreme Filter
+        # Only LONG when Daily trend is UP. Only SHORT when Daily trend is DOWN.
+        # This single filter prevents false longs during March 2026 downtrend.
+        # ------------------------------------------------------------------
+        inf_1d = self.dp.get_pair_dataframe(pair=metadata["pair"], timeframe="1d")
+        inf_1d["ema_9"]   = ta.EMA(inf_1d, timeperiod=9)  # Faster response
+        inf_1d["ema_21"]  = ta.EMA(inf_1d, timeperiod=21)
+        inf_1d["ema_50"]  = ta.EMA(inf_1d, timeperiod=50)
+        inf_1d["rsi"]     = ta.RSI(inf_1d, timeperiod=14)   # -> rsi_1d after merge
+
+        # Daily bullish: price ABOVE daily EMA9 (Faster trend response)
+        inf_1d["trend_bullish"] = (
+            (inf_1d["close"] > inf_1d["ema_9"]) &
+            (
+                inf_1d["ema_21"].isna() |
+                (inf_1d["ema_9"] > inf_1d["ema_21"])
+            )
+        )
+        # Daily bearish: price BELOW daily EMA9
+        inf_1d["trend_bearish"] = (
+            (inf_1d["close"] < inf_1d["ema_9"]) &
+            (
+                inf_1d["ema_21"].isna() |
+                (inf_1d["ema_9"] < inf_1d["ema_21"])
+            )
+        )
+        dataframe = merge_informative_pair(dataframe, inf_1d, self.timeframe, "1d", ffill=True)
+        # After merge: trend_bullish_1d, trend_bearish_1d, rsi_1d
+
         inf_4h = self.dp.get_pair_dataframe(pair=metadata["pair"], timeframe="4h")
-        inf_4h["ema_20"] = ta.EMA(inf_4h, timeperiod=20)
-        inf_4h["ema_50"] = ta.EMA(inf_4h, timeperiod=50)
+        inf_4h["ema_20"]  = ta.EMA(inf_4h, timeperiod=20)
+        inf_4h["ema_50"]  = ta.EMA(inf_4h, timeperiod=50)
         inf_4h["ema_200"] = ta.EMA(inf_4h, timeperiod=200)
-        
-        # Bullish if Price > EMA 50 OR (EMA 20 > EMA 50 - momentum)
-        inf_4h["macro_bullish"] = (inf_4h["close"] > inf_4h["ema_50"]) | (inf_4h["ema_20"] > inf_4h["ema_50"])
-        
-        # Strict Bearish: Only if Price < EMA 50 AND EMA 20 < EMA 50 AND Price < EMA 200
-        inf_4h["macro_bearish"] = (inf_4h["close"] < inf_4h["ema_50"]) & (inf_4h["ema_20"] < inf_4h["ema_50"]) & (inf_4h["close"] < inf_4h["ema_200"])
-        
+        inf_4h["rsi"]     = ta.RSI(inf_4h, timeperiod=14)   # -> rsi_4h after merge
+        inf_4h["adx"]     = ta.ADX(inf_4h, timeperiod=14)   # -> adx_4h after merge
+        inf_4h["atr"]     = ta.ATR(inf_4h, timeperiod=14)   # -> atr_4h after merge
+
+        # 4H Market Bias
+        inf_4h["macro_bullish"] = (
+            (inf_4h["close"] > inf_4h["ema_50"]) |
+            (inf_4h["ema_20"] > inf_4h["ema_50"])
+        )
+        inf_4h["macro_bearish"] = (
+            (inf_4h["close"] < inf_4h["ema_50"]) &
+            (inf_4h["ema_20"] < inf_4h["ema_50"]) &
+            (inf_4h["close"] < inf_4h["ema_200"])
+        )
+
+        # 4H Key Levels (Liquidity Pools — where retail stops cluster)
+        sw4h = 8
+        inf_4h["recent_high_4h_src"] = inf_4h["high"].rolling(sw4h, min_periods=1).max().shift(1)
+        inf_4h["recent_low_4h_src"]  = inf_4h["low"].rolling(sw4h, min_periods=1).min().shift(1)
+
+        # 4H Liquidity Sweep Detection
+        # Bullish: price wicks below key low, closes back above = SM bought
+        inf_4h["bull_sweep"] = (
+            (inf_4h["low"]   < inf_4h["recent_low_4h_src"])  &
+            (inf_4h["close"] > inf_4h["recent_low_4h_src"])  &
+            (inf_4h["close"] > inf_4h["open"])
+        )
+        # Bearish: price wicks above key high, closes back below = SM sold
+        inf_4h["bear_sweep"] = (
+            (inf_4h["high"]  > inf_4h["recent_high_4h_src"]) &
+            (inf_4h["close"] < inf_4h["recent_high_4h_src"]) &
+            (inf_4h["close"] < inf_4h["open"])
+        )
+        # Keep 4H sweep signal for 3 candles (12H window)
+        inf_4h["bull_sweep"] = inf_4h["bull_sweep"].rolling(3).max().fillna(0).astype(bool)
+        inf_4h["bear_sweep"] = inf_4h["bear_sweep"].rolling(3).max().fillna(0).astype(bool)
+
         dataframe = merge_informative_pair(dataframe, inf_4h, self.timeframe, "4h", ffill=True)
+        # merge_informative_pair renames: bull_sweep -> bull_sweep_4h, bear_sweep -> bear_sweep_4h
+        # rsi_4h -> rsi_4h, adx_4h -> adx_4h, macro_bullish -> macro_bullish_4h, macro_bearish -> macro_bearish_4h
+        # These are already correct — no alias needed.
 
-        # 2. MACRO 1H (The Wave)
-        # 1. MACRO 1h
-        inf_df_1h = self.dp.get_pair_dataframe(pair=metadata["pair"], timeframe="1h")
-        inf_df_1h["ema_20"] = ta.EMA(inf_df_1h, timeperiod=20)
-        inf_df_1h["ema_50"] = ta.EMA(inf_df_1h, timeperiod=50)
-        inf_df_1h["adx"] = ta.ADX(inf_df_1h, timeperiod=14)
-        dataframe = merge_informative_pair(dataframe, inf_df_1h, self.timeframe, "1h", ffill=True)
+        # ------------------------------------------------------------------
+        # 2. WAVE STRUCTURE (1H) — Entry Zone Identification
+        # ------------------------------------------------------------------
+        inf_1h = self.dp.get_pair_dataframe(pair=metadata["pair"], timeframe="1h")
+        inf_1h["ema_20"]         = ta.EMA(inf_1h, timeperiod=20)
+        inf_1h["rsi_1h"]         = ta.RSI(inf_1h, timeperiod=14)
+        inf_1h["adx_1h"]         = ta.ADX(inf_1h, timeperiod=14)
+        inf_1h["volume_mean_1h"] = inf_1h["volume"].rolling(40, min_periods=1).mean()
 
-        # 2. MICRO 15m
-        dataframe["ema_7"] = ta.EMA(dataframe, timeperiod=7)
-        dataframe["ema_25"] = ta.EMA(dataframe, timeperiod=25)
-        dataframe["ema_10"] = ta.EMA(dataframe, timeperiod=10)
-        dataframe["ema_50"] = ta.EMA(dataframe, timeperiod=50)
+        sw1h = 6
+        inf_1h["recent_high_1h"] = inf_1h["high"].rolling(sw1h, min_periods=1).max().shift(1)
+        inf_1h["recent_low_1h"]  = inf_1h["low"].rolling(sw1h, min_periods=1).min().shift(1)
+
+        # 1H Liquidity Sweep
+        inf_1h["bull_sweep_1h_src"] = (
+            (inf_1h["low"]   < inf_1h["recent_low_1h"])  &
+            (inf_1h["close"] > inf_1h["recent_low_1h"])  &
+            (inf_1h["close"] > inf_1h["open"])
+        )
+        inf_1h["bear_sweep_1h_src"] = (
+            (inf_1h["high"]  > inf_1h["recent_high_1h"]) &
+            (inf_1h["close"] < inf_1h["recent_high_1h"]) &
+            (inf_1h["close"] < inf_1h["open"])
+        )
+        # Keep 1H sweep for 4 candles (4H window)
+        inf_1h["bull_sweep_1h_src"] = inf_1h["bull_sweep_1h_src"].rolling(4).max().fillna(0).astype(bool)
+        inf_1h["bear_sweep_1h_src"] = inf_1h["bear_sweep_1h_src"].rolling(4).max().fillna(0).astype(bool)
+
+        dataframe = merge_informative_pair(dataframe, inf_1h, self.timeframe, "1h", ffill=True)
+        # merge_informative_pair renames: bull_sweep_1h_src -> bull_sweep_1h_src_1h
+        # Create clean aliases:
+        dataframe["bull_sweep_1h"] = dataframe["bull_sweep_1h_src_1h"].fillna(False).astype(bool)
+        dataframe["bear_sweep_1h"] = dataframe["bear_sweep_1h_src_1h"].fillna(False).astype(bool)
+
+        # ------------------------------------------------------------------
+        # 3. MICRO EXECUTION (15m) — Precision Entry
+        # ------------------------------------------------------------------
+        dataframe["ema_9"]   = ta.EMA(dataframe, timeperiod=9)
+        dataframe["ema_20"]  = ta.EMA(dataframe, timeperiod=20)
+        dataframe["ema_21"]  = ta.EMA(dataframe, timeperiod=21)  # Added for V8.1
+        dataframe["ema_50"]  = ta.EMA(dataframe, timeperiod=50)
         dataframe["ema_200"] = ta.EMA(dataframe, timeperiod=200)
-        dataframe["sma_200"] = ta.SMA(dataframe, timeperiod=200)
-        dataframe["atr"] = ta.ATR(dataframe, timeperiod=14)
-        dataframe["rsi"] = ta.RSI(dataframe, timeperiod=14)
-        dataframe["adx"] = ta.ADX(dataframe, timeperiod=14)
+        dataframe["rsi"]     = ta.RSI(dataframe, timeperiod=14)
+        dataframe["atr"]     = ta.ATR(dataframe, timeperiod=14)
+        dataframe["adx"]     = ta.ADX(dataframe, timeperiod=14)
+        dataframe["mfi"]     = ta.MFI(dataframe, timeperiod=14)
 
         macd = ta.MACD(dataframe)
-        dataframe["macd"] = macd["macd"]
+        dataframe["macd"]       = macd["macd"]
         dataframe["macdsignal"] = macd["macdsignal"]
-        dataframe["macdhist"] = macd["macdhist"]
+        dataframe["macdhist"]   = macd["macdhist"]
 
         bb = ta.BBANDS(dataframe, timeperiod=20)
-        dataframe["bb_upperband"] = bb["upperband"]
-        dataframe["bb_lowerband"] = bb["lowerband"]
+        dataframe["bb_upper"]  = bb["upperband"]
+        dataframe["bb_lower"]  = bb["lowerband"]
+        dataframe["bb_middle"] = bb["middleband"]
 
-        # 3. VOLUME, LIQUIDITY & SMART MONEY COMPASS
-        typical_price = (dataframe["high"] + dataframe["low"] + dataframe["close"]) / 3
-        dataframe["vwap_24h"] = (dataframe["volume"] * typical_price).rolling(
-            window=96
-        ).sum() / dataframe["volume"].rolling(window=96).sum()
-        dataframe["volume_mean"] = dataframe["volume"].rolling(window=40).mean()
+        # Volume
+        dataframe["volume_mean"]  = dataframe["volume"].rolling(40, min_periods=1).mean()
+        dataframe["volume_ratio"] = dataframe["volume"] / dataframe["volume_mean"].replace(0, 1)
+        dataframe["volume_surge"] = dataframe["volume_ratio"] > 2.0  # 2x average = SM activity
 
-        dataframe["obv"] = ta.OBV(dataframe["close"], dataframe["volume"])
-        dataframe["obv_ema_10"] = ta.EMA(dataframe["obv"], timeperiod=10)  # OBV Momentum Compass
+        # OBV — Smart Money footprint
+        dataframe["obv"]        = ta.OBV(dataframe["close"], dataframe["volume"])
+        dataframe["obv_ema_20"] = ta.EMA(dataframe["obv"], timeperiod=20)
+        dataframe["obv_rising"] = dataframe["obv"] > dataframe["obv_ema_20"]
 
-        # 5. FLOW & MOMENTUM (V5.70 - PRECISION)
-        dataframe["mfi"] = ta.MFI(dataframe, timeperiod=14)
-        dataframe["mfi_low"] = dataframe["mfi"].rolling(window=20).min()
-        dataframe["mfi_high"] = dataframe["mfi"].rolling(window=20).max()
-        
-        # --- V5.95: DIVERGENCE DETECTION ---
-        # Phân kỳ MFI Low: Giá tạo đáy mới thấp hơn nhưng MFI tạo đáy cao hơn
-        dataframe["mfi_low_divergence"] = np.where(
-            (dataframe["low"] < dataframe["low"].shift(1)) & 
-            (dataframe["mfi"] > dataframe["mfi"].shift(1)) & 
-            (dataframe["mfi"] < 30), 1, 0
+        # Candle anatomy
+        dataframe["body_size"]  = abs(dataframe["close"] - dataframe["open"])
+        dataframe["lower_wick"] = np.where(
+            dataframe["close"] > dataframe["open"],
+            dataframe["open"]  - dataframe["low"],
+            dataframe["close"] - dataframe["low"]
         )
-        
-        # Phân kỳ MFI High: Giá tạo đỉnh mới cao hơn nhưng MFI tạo đỉnh thấp hơn
-        dataframe["mfi_high_divergence"] = np.where(
-            (dataframe["high"] > dataframe["high"].shift(1)) & 
-            (dataframe["mfi"] < dataframe["mfi"].shift(1)) & 
-            (dataframe["mfi"] > 70), 1, 0
+        dataframe["upper_wick"] = np.where(
+            dataframe["close"] > dataframe["open"],
+            dataframe["high"] - dataframe["close"],
+            dataframe["high"] - dataframe["open"]
         )
 
-        # 4. MARKET STRUCTURE & WICK ANALYSIS
-        dataframe["candle_body"] = abs(dataframe["close"] - dataframe["open"])
-        dataframe["lower_wick"] = np.where(dataframe["close"] > dataframe["open"], 
-                                         dataframe["open"] - dataframe["low"], 
-                                         dataframe["close"] - dataframe["low"])
-        dataframe["upper_wick"] = np.where(dataframe["close"] > dataframe["open"], 
-                                         dataframe["high"] - dataframe["close"], 
-                                         dataframe["high"] - dataframe["open"])
-                                         
-        dataframe["avg_candle_body"] = dataframe["candle_body"].rolling(window=40).mean()
-        # 2. LOCAL STRUCTURE (V5.41 - Wider Lookback)
-        dataframe["local_high"] = dataframe["high"].rolling(window=30).max().shift(1)
-        dataframe["local_low"] = dataframe["low"].rolling(window=30).min().shift(1)
+        # ------------------------------------------------------------------
+        # 4. SMC: 1H SWING LEVELS & LIQUIDITY SWEEPS (Main TF)
+        # ------------------------------------------------------------------
+        sw1h = 10
+        dataframe["recent_high"] = dataframe["high"].rolling(sw1h, min_periods=1).max().shift(1)
+        dataframe["recent_low"]  = dataframe["low"].rolling(sw1h, min_periods=1).min().shift(1)
+ 
+        # Bullish Sweep (1h)
+        dataframe["bull_sweep"] = (
+            (dataframe["low"]   < dataframe["recent_low"])    &
+            (dataframe["close"] > dataframe["recent_low"])    &
+            (dataframe["close"] > dataframe["open"])          &
+            (dataframe["lower_wick"] > dataframe["body_size"] * 0.3)
+        )
+ 
+        # Bearish Sweep (1h)
+        dataframe["bear_sweep"] = (
+            (dataframe["high"]  > dataframe["recent_high"])   &
+            (dataframe["close"] < dataframe["recent_high"])   &
+            (dataframe["close"] < dataframe["open"])          &
+            (dataframe["upper_wick"] > dataframe["body_size"] * 0.3)
+        )
+ 
+        # Recent sweeps (within last 12 candles = 3H window)
+        dataframe["bull_sweep_recent"] = dataframe["bull_sweep"].rolling(12).max().fillna(0).astype(bool)
+        dataframe["bear_sweep_recent"] = dataframe["bear_sweep"].rolling(12).max().fillna(0).astype(bool)
 
-        dataframe = self.freqai.start(dataframe, metadata, self)
+        # ------------------------------------------------------------------
+        # 5. BREAK OF STRUCTURE (BOS) — Trend Shift Confirmed
+        # ------------------------------------------------------------------
+        # Bullish BOS: After sweep, price breaks ABOVE recent high → trend flipped UP
+        dataframe["bos_bullish"] = (
+            (dataframe["close"] > dataframe["recent_high"]) &
+            (dataframe["close"] > dataframe["open"])        &
+            (dataframe["bull_sweep_recent"] | dataframe["bull_sweep_4h"]) &
+            (dataframe["volume_ratio"] > 1.0)
+        )
+
+        # Bearish BOS: After sweep, price breaks BELOW recent low → trend flipped DOWN
+        dataframe["bos_bearish"] = (
+            (dataframe["close"] < dataframe["recent_low"])  &
+            (dataframe["close"] < dataframe["open"])        &
+            (dataframe["bear_sweep_recent"] | dataframe["bear_sweep_4h"]) &
+            (dataframe["volume_ratio"] > 1.0)
+        )
+
+        # ------------------------------------------------------------------
+        # 6. CHANGE OF CHARACTER (CHoCH) — Early Reversal Signal
+        # ------------------------------------------------------------------
+        prev_high_5 = dataframe["high"].rolling(5, min_periods=1).max().shift(2)
+        prev_low_5  = dataframe["low"].rolling(5, min_periods=1).min().shift(2)
+
+        dataframe["choch_bullish"] = (
+            (dataframe["high"] > prev_high_5)       &
+            (dataframe["close"] > dataframe["open"]) &
+            (dataframe["bull_sweep_recent"] | dataframe["bull_sweep_4h"]) &
+            (dataframe["volume_ratio"] > 1.2)  # Added Volume Filter to kill CHoCH noise
+        )
+
+        dataframe["choch_bearish"] = (
+            (dataframe["low"]  < prev_low_5)         &
+            (dataframe["close"] < dataframe["open"]) &
+            (dataframe["bear_sweep_recent"] | dataframe["bear_sweep_4h"]) &
+            (dataframe["volume_ratio"] > 1.2)  # Added Volume Filter to kill CHoCH noise
+        )
+
+        # ------------------------------------------------------------------
+        # X-RAY LOGGING
+        # ------------------------------------------------------------------
+        last = dataframe.iloc[-1]
+        logger.warning(
+            f"[V7 SMC] {metadata['pair']} | "
+            f"4H: {'BULL' if last.get('macro_bullish_4h') else 'BEAR' if last.get('macro_bearish_4h') else 'NEUT'} | "
+            f"Sweep15m: {'BULL' if last.get('bull_sweep_recent') else 'BEAR' if last.get('bear_sweep_recent') else '-'} | "
+            f"BOS: {'BULL' if last.get('bos_bullish') else 'BEAR' if last.get('bos_bearish') else '-'} | "
+            f"RSI={last['rsi']:.0f} ADX={last['adx']:.0f} Vol={last['volume_ratio']:.1f}x"
+        )
+
         return dataframe
 
-    # --- COMBAT CORE (ENTRY) ---
+    # ==========================================
+    # EXIT TREND — Structure-based exit
+    # ==========================================
     def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        # V5.83: TOTAL SOVEREIGNTY - NO TECHNICAL EXIT
-        # Chúng ta không thoát theo chỉ báo kỹ thuật nữa để tránh chốt non.
-        # Mọi quyết định thoát lệnh chốt lời nằm ở custom_exit.
-        dataframe.loc[:, ["exit_long", "exit_short"]] = 0
+        dataframe["exit_long"]  = 0
+        dataframe["exit_short"] = 0
         return dataframe
 
+    # ==========================================
+    # ENTRY TREND — SMC: Bias (HTF) + Trigger (LTF)
+    # ==========================================
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        import logging
-
-        logger = logging.getLogger(__name__)
-        predict_col = "&-rr_score"
-        dataframe["enter_long"] = 0
+        dataframe["enter_long"]  = 0
         dataframe["enter_short"] = 0
 
-        if predict_col not in dataframe.columns:
-            return dataframe
-
-        last_idx = -1
-        common_cond = dataframe[predict_col].notnull()
-        
-        # --- FILTERS & PROTECTIONS ---
         common_cond = (dataframe["volume"] > 0)
-        
-        risk_filter = (
-            (dataframe["rsi"] < 75)                               # ⚡ V5.61: Loosened for Super Trends
-            & (dataframe["close"] > dataframe["bb_lowerband"])
-        )
-
-        # ANTI-FOMO FILTERS (V5.61)
-        no_fomo_long = (dataframe["rsi"] < 70) 
-        no_fomo_short = (dataframe["rsi"] > 30)
-
-        # ======================================================================
-        # --- SMART INTERCEPTOR (V5.0 - EMA CROSSOVER & VOLUME EXPAND) ---
-        # ==========================================
-        import freqtrade.vendor.qtpylib.indicators as qtpylib
-
-        smart_volume = (
-            (dataframe["volume"] > dataframe["volume"].shift(1))
-            & (dataframe["volume"] > dataframe["volume_mean"])
-        )
-
-        is_green_candle = dataframe["close"] > dataframe["open"]
-        is_red_candle = dataframe["close"] < dataframe["open"]
-
-        ema_cross_long = (
-            qtpylib.crossed_above(dataframe["ema_7"], dataframe["ema_25"])
-            & (dataframe["close"] > dataframe["ema_50"])
-            & is_green_candle
-            & smart_volume
-        )
-
-        ema_cross_short = (
-            qtpylib.crossed_below(dataframe["ema_7"], dataframe["ema_25"])
-            & (dataframe["close"] < dataframe["ema_50"])
-            & is_red_candle
-            & smart_volume
-        )
-
-        # --- DANGER FILTERS (ANTI-TRAP V5.10) ---
-        # 1. Wick Trap: If candle has a long wick in opposite direction, it's a trap
-        # V5.10: Strict ratio check - if wick > body, it's unstable
-        long_wick_trap = (dataframe["upper_wick"] > dataframe["candle_body"])
-        short_wick_trap = (dataframe["lower_wick"] > dataframe["candle_body"])
-        
-        # 2. Volume Climax: Extreme volume usually leads to reversal
-        volume_climax = (dataframe["volume"] > (dataframe["volume_mean"] * 3.0))
-
-        # 3. Overextension: If price is too far from EMA 7, wait for pullback
-        long_overextended = (dataframe["close"] > (dataframe["ema_7"] * 1.015))
-        short_overextended = (dataframe["close"] < (dataframe["ema_7"] * 0.985))
-
-        # --- SMART MONEY COMPASS (OBV) ---
-        obv_flowing_in = (dataframe["obv"] > dataframe["obv_ema_10"]) & (dataframe["obv"] > dataframe["obv"].shift(1))
-        obv_flowing_out = (dataframe["obv"] < dataframe["obv_ema_10"]) & (dataframe["obv"] < dataframe["obv"].shift(1))
-
-        # ======================================================================
-        # 🎯 PRECISION REVERSAL SNIPER (V5.70 - THE ALPHA)
-        # ======================================================================
-        
-        # 🟢 LONG PRECISION: Phân kỳ MFI + Quét đáy + Nến xanh xác nhận
-        # (Giá phá đáy cũ nhưng MFI không phá đáy cũ -> Kiệt sức)
-        long_precision_cond = (
-            common_cond
-            & (dataframe["low"] < dataframe["local_low"])         # ⚡ Quét đáy cũ
-            & (dataframe["mfi"] > dataframe["mfi_low"])            # ⚡ Phân kỳ MFI (Divergence)
-            & (dataframe["close"] > dataframe["open"])             # ⚡ Nến xanh xác nhận
-            & (dataframe["volume"] > dataframe["volume_mean"])     # ⚡ Dòng tiền vào
-            & (dataframe["rsi"] < 40)                              # ⚡ Vùng giá tốt
-            & (dataframe[predict_col] > 0.0)
-        )
-
-        # 🔴 SHORT PRECISION: Phân kỳ MFI + Quét đỉnh + Nến đỏ xác nhận
-        short_precision_cond = (
-            common_cond
-            & (dataframe["high"] > dataframe["local_high"])        # ⚡ Quét đỉnh cũ
-            & (dataframe["mfi"] < dataframe["mfi_high"])           # ⚡ Phân kỳ MFI
-            & (dataframe["close"] < dataframe["open"])             # ⚡ Nến đỏ xác nhận
-            & (dataframe["volume"] > dataframe["volume_mean"])
-            & (dataframe["rsi"] > 60)
-            & (dataframe["macro_bearish_4h"])                      # ⚡ Chỉ Short khi xu hướng 4H cho phép
-            & (dataframe[predict_col] < 0.0)
-        )
-
-        # 🎯 BOS SNIPER - TREND RIDER (STRICTER QUALITY)
-        long_bos_cond = (
-            common_cond
-            & (dataframe["close"] > dataframe["ema_50_1h"])
-            & (dataframe["ema_7"] > dataframe["ema_25"])
-            & (dataframe["ema_25"] > dataframe["ema_50"])
-            & (dataframe["volume"] > (dataframe["volume_mean"] * 1.5)) # ⚡ High quality only
-            & (dataframe[predict_col] > 0.01)
-        )
-
-        short_bos_cond = (
-            common_cond
-            & dataframe["macro_bearish_4h"]
-            & (dataframe["close"] < dataframe["ema_50"])
-            & (dataframe["ema_7"] < dataframe["ema_25"])
-            & (dataframe["volume"] > dataframe["volume_mean"])
-            & (dataframe[predict_col] < -0.005)
-        )
-
-        # --- COMBAT CORE (ENTRY) ---
-        long_precision_cond = (
-            common_cond
-            & (dataframe["mfi_low_divergence"] == 1)
-            & (dataframe["close"] > dataframe["ema_25"])
-            & (dataframe[predict_col] > 0.01)
-        )
-        
-        short_precision_cond = (
-            common_cond
-            & (dataframe["mfi_high_divergence"] == 1)
-            & (dataframe["close"] < dataframe["ema_25"])
-            & (dataframe[predict_col] < -0.01)
-        )
-
-        # --- V5.90: PANIC SNIPER (Bắt đáy hoảng loạn) ---
-        # Vào lệnh ngay khi có Volume đột biến và quét râu nến dưới
-        long_panic_cond = (
-            common_cond
-            & (dataframe["volume"] > dataframe["volume_mean"] * 3) # Volume gấp 3 lần trung bình
-            & (dataframe["low"] < dataframe["bb_lowerband"])       # Quét dưới Bollinger Band
-            & (dataframe["close"] > dataframe["low"])              # Có lực rút chân
-        )
-
-        dataframe.loc[long_precision_cond, ["enter_long", "enter_tag"]] = (1, "precision_long_mfi")
-        dataframe.loc[long_panic_cond, ["enter_long", "enter_tag"]] = (1, "panic_bottom_sniper")
-        dataframe.loc[short_precision_cond, ["enter_short", "enter_tag"]] = (1, "precision_short_mfi")
 
         # ==========================================
-        # 🧭 TELEMETRY X-RAY (STEALTH INTERCEPTOR)
+        # LONG ENTRIES (SHARK HUNTING)
+        # Context: 1D Bullish + 4H Bullish
+        # Trigger: 1H Liquidity Sweep + High Volume + MACD Divergence
         # ==========================================
-        if True:
-            curr_close = dataframe["close"].iloc[last_idx]
-            curr_vwap = dataframe["vwap_24h"].iloc[last_idx]
-            curr_rsi = dataframe["rsi"].iloc[last_idx]
+        long_bias = (
+            (dataframe["trend_bullish_1d"]) & 
+            (dataframe["macro_bullish_4h"]) &
+            (dataframe["rsi_1d"] < 75) &     # Không mua khi Daily đã quá mua (đu đỉnh)
+            (dataframe["rsi_4h"] < 70)       # Không mua khi 4H đang quá mua
+        )
 
-            is_up = dataframe["ema_7"].iloc[last_idx] > dataframe["ema_25"].iloc[last_idx]
-            is_down = dataframe["ema_7"].iloc[last_idx] < dataframe["ema_25"].iloc[last_idx]
+        shark_long = (
+            common_cond &
+            long_bias &
+            (dataframe["bull_sweep_recent"] | dataframe["bull_sweep"]) &
+            (dataframe["rsi"] < 60) &            # 1H phải có nhịp chỉnh (RSI < 60), không fomo
+            (dataframe["close"] < dataframe["bb_upper"]) & # Không dính vào dải trên Bollinger
+            (dataframe["volume_ratio"] > 1.5) &  # Sharks are buying
+            (dataframe["macdhist"] > dataframe["macdhist"].shift(1)) # Momentum turning up
+        )
 
-            ai_score = (
-                dataframe[predict_col].iloc[last_idx] if predict_col in dataframe.columns else 0.0
-            )
+        # ==========================================
+        # SHORT ENTRIES (SHARK HUNTING)
+        # ==========================================
+        short_bias = (
+            (dataframe["trend_bearish_1d"]) & 
+            (dataframe["macro_bearish_4h"]) &
+            (dataframe["rsi_1d"] > 25) &     # Không Short khi Daily quá bán (bán đáy)
+            (dataframe["rsi_4h"] > 30)       # Không Short khi 4H quá bán
+        )
 
-            logger.warning(f"")
-            logger.warning(
-                f"========== 🧭 X-RAY RADAR: SNIPER V5.10 - SURVIVOR ARMOR ({metadata['pair']}) 🧭 =========="
-            )
+        shark_short = (
+            common_cond &
+            short_bias &
+            (dataframe["bear_sweep_recent"] | dataframe["bear_sweep"]) &
+            (dataframe["rsi"] > 40) &            # 1H phải có nhịp hồi (RSI > 40), không bán đuổi
+            (dataframe["close"] > dataframe["bb_lower"]) & # Không dính vào dải dưới Bollinger
+            (dataframe["volume_ratio"] > 1.5) &  # Sharks are selling
+            (dataframe["macdhist"] < dataframe["macdhist"].shift(1)) # Momentum turning down
+        )
 
-            if is_up:
-                vwap_ok = (
-                    "✅ VALID (Price > VWAP 24h)"
-                    if curr_close > curr_vwap
-                    else "🔴 REJECTED (Against VWAP)"
-                )
-                fomo_ok = (
-                    f"✅ SAFE (RSI: {curr_rsi:.1f})"
-                    if no_fomo_long.iloc[last_idx]
-                    else f"🔴 DANGER/OVERBOUGHT (RSI: {curr_rsi:.1f})"
-                )
-                macd_long_ok = (
-                    "🔥 VALID (Green Candle + Strong Vol)"
-                    if ema_cross_long.iloc[last_idx]
-                    else "⏳ WAITING EMA 7 CROSS 25 / STRONG SUPPLY"
-                )
-                obv_ok = (
-                    "✅ VALID (OBV Pumping)"
-                    if obv_flowing_in.iloc[last_idx]
-                    else "🔴 REJECTED (Smart Money Dumping)"
-                )
-                ai_ok = "✅ VALID (> 0.002)" if ai_score > 0.002 else "🔴 REJECTED (Low AI Score)"
-
-                logger.warning(
-                    f"► 1. HIGH-SPEED TREND (15m): 🟢 UPTREND (EMA 7 > 25) -> SEARCHING [LONG] 🚀"
-                )
-                logger.warning(
-                    f"► 2. VWAP REFEREE          : {vwap_ok} | Live: {curr_close:.2f} / VWAP: {curr_vwap:.2f}"
-                )
-                logger.warning(f"► 3. ANTI-FOMO             : {fomo_ok}")
-                logger.warning(f"► 4. ENTRY TRIGGER         : {macd_long_ok}")
-                logger.warning(f"► 5. OBV COMPASS           : {obv_ok}")
-                logger.warning(f"► 6. AI BRAIN              : {ai_ok} | Score: {ai_score:.4f}")
-
-            elif is_down:
-                vwap_ok = (
-                    "✅ VALID (Price < VWAP 24h)"
-                    if curr_close < curr_vwap
-                    else "🔴 REJECTED (Against VWAP)"
-                )
-                fomo_ok = (
-                    f"✅ SAFE (RSI: {curr_rsi:.1f})"
-                    if no_fomo_short.iloc[last_idx]
-                    else f"🔴 DANGER/OVERSOLD (RSI: {curr_rsi:.1f} < 30)"
-                )
-                macd_short_ok = (
-                    "🩸 VALID (Red Candle + Strong Vol)"
-                    if ema_cross_short.iloc[last_idx]
-                    else "⏳ WAITING EMA 7 CROSS 25 / NO DEMAND"
-                )
-                obv_ok = (
-                    "✅ VALID (OBV Dumping)"
-                    if obv_flowing_out.iloc[last_idx]
-                    else "🔴 REJECTED (Smart Money Pumping)"
-                )
-                ai_ok = "✅ VALID (< -0.002)" if ai_score < -0.002 else "🔴 REJECTED (Low AI Score)"
-
-                logger.warning(
-                    f"► 1. HIGH-SPEED TREND (15m): 🔴 DOWNTREND (EMA 7 < 25) -> SEARCHING [SHORT] 🩸"
-                )
-                logger.warning(
-                    f"► 2. VWAP REFEREE          : {vwap_ok} | Live: {curr_close:.2f} / VWAP: {curr_vwap:.2f}"
-                )
-                logger.warning(f"► 3. ANTI-FOMO             : {fomo_ok}")
-                logger.warning(f"► 4. ENTRY TRIGGER         : {macd_short_ok}")
-                logger.warning(f"► 5. OBV COMPASS           : {obv_ok}")
-                logger.warning(f"► 6. AI BRAIN              : {ai_ok} | Score: {ai_score:.4f}")
-
-            else:
-                logger.warning(
-                    f"► 1. HIGH-SPEED TREND (15m): 🟡 SIDEWAY (EMA 7 overlaps EMA 25) -> STANDBY 💤"
-                )
-
-            logger.warning(f"===========================================================")
-
-        return dataframe
-
-    def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        # THOÁT LỆNH THEO XU HƯỚNG KHUNG 1H (V5.77 - TREND PROTECTOR)
+        # = ::::: ASSIGN ENTRIES ::::: =
+        dataframe.loc[shark_long,  ["enter_long",  "enter_tag"]] = (1, "shark_long_1h")
+        dataframe.loc[shark_short, ["enter_short", "enter_tag"]] = (1, "shark_short_1h")
         
-        # Thoát LONG khi xu hướng 1H thực sự đảo chiều (EMA 20 cắt xuống EMA 50)
-        exit_long_cond = (
-            (dataframe["close"] < dataframe["ema_50_1h"]) 
-            & (dataframe["ema_20_1h"] < dataframe["ema_50_1h"])
-        )
-
-        # Thoát SHORT khi xu hướng 1H phục hồi
-        exit_short_cond = (
-            (dataframe["close"] > dataframe["ema_50_1h"])
-            & (dataframe["ema_20_1h"] > dataframe["ema_50_1h"])
-        )
-
-        dataframe.loc[exit_long_cond, "exit_long"] = 1
-        dataframe.loc[exit_short_cond, "exit_short"] = 1
         return dataframe

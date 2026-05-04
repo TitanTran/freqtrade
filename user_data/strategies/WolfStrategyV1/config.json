@@ -1,12 +1,11 @@
 {
-    "strategy_path": "user_data/strategies/WolfStrategyV1/",
-    "max_open_trades": 1,
+    "max_open_trades": 3,
     "stake_currency": "USDT",
     "stake_amount": "unlimited",
     "tradable_balance_ratio": 0.99,
     "fiat_display_currency": "USD",
     "dry_run": false,
-    "timeframe": "15m",
+    "timeframe": "1h",
     "cancel_open_orders_on_exit": false,
     "unfilledtimeout": {
         "entry": 5,
@@ -51,6 +50,7 @@
         },
         "pair_whitelist": [
             "BTC/USDT:USDT",
+            "ETH/USDT:USDT",
             "BNB/USDT:USDT"
         ],
         "pair_blacklist": []
@@ -61,13 +61,13 @@
         }
     ],
     "freqai": {
-        "enabled": true,
+        "enabled": false,
         "freqaimodel": "XGBoostRegressor",
         "purge_old_models": true,
         "train_period_days": 15,
         "backtest_period_days": 7,
         "live_retrain_hours": 1,
-        "identifier": "wolf_mtf_v6_v590",
+        "identifier": "wolf_v7_smc",
         "feature_parameters": {
             "include_timeframes": [
                 "15m",
