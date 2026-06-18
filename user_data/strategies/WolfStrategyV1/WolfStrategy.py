@@ -1,10 +1,18 @@
 import logging
+import os
+import sys
 from freqtrade.strategy import IStrategy, merge_informative_pair
+from freqtrade.enums import RunMode
 from pandas import DataFrame
+import pandas as pd
 import talib.abstract as ta
 from datetime import datetime
 from freqtrade.persistence import Trade
 import numpy as np
+
+# Make the sibling approval_queue module importable regardless of CWD.
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+import approval_queue  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +46,85 @@ class WolfStrategy(IStrategy):
     timeframe = "1h"
     can_short = True
 
+    # ------------------------------------------------------------------
+    # PAIR WHITELIST GUARD
+    # Out-of-sample testing (2026-06-08) proved the parameters are curve-fit to
+    # BTC/ETH/BNB: on 8 unseen pairs the SAME logic over the SAME window lost
+    # -37% (DD 41%) vs +32% on these three. This strategy is a BTC/ETH/BNB
+    # specialist ONLY. The guard below hard-blocks entries on any other pair,
+    # even if the config whitelist is changed or a dynamic pairlist is used.
+    # ------------------------------------------------------------------
+    ALLOWED_PAIRS = {"BTC/USDT:USDT", "ETH/USDT:USDT", "BNB/USDT:USDT"}
+
+    # ------------------------------------------------------------------
+    # HUMAN-IN-THE-LOOP APPROVAL
+    # When True (live/dry-run only), automatic signals are NOT executed
+    # directly. They are queued for Telegram approval (Gemini gives an
+    # advisory opinion, the human presses Approve/Reject). Backtesting and
+    # hyperopt always run fully automatic so research is unaffected.
+    # ------------------------------------------------------------------
+    MANUAL_APPROVAL_REQUIRED = True
+    AUTO_SIGNAL_TAGS = {"shark_long_1h", "shark_short_1h"}
+
+    # ------------------------------------------------------------------
+    # ENTRY FILTER CONFIG (recalibrated 2026-06-18)
+    # The original entry stacked ~8 AND-conditions and fired only 1 trade in
+    # 6 weeks out-of-sample (signal-starved). It was loosened (sweep no longer
+    # mandatory, lower volume floor, wider RSI) and gated by a multi-factor
+    # TREND-REGIME classifier so the bot only trades a clean directional regime
+    # and sits out chop. All thresholds are named constants (no magic numbers).
+    # ------------------------------------------------------------------
+    ENABLE_LONG = True              # long side is the weak side; toggle off to go short-only
+    ENABLE_SHORT = True
+    # Macro side-switch: 1D structure picks WHICH side may trade at all, so the
+    # bot is long-only in a sustained daily uptrend and short-only in a daily
+    # downtrend, instead of shorting bull pullbacks / longing bear bounces.
+    MACRO_SIDE_SWITCH = True
+    VOL_RATIO_MIN = 1.3             # was 1.5
+    RSI_LONG_MAX = 62.0
+    RSI_SHORT_MIN = 38.0
+    RSI_1D_LONG_MAX = 80.0
+    RSI_4H_LONG_MAX = 75.0
+    RSI_1D_SHORT_MIN = 20.0
+    RSI_4H_SHORT_MIN = 25.0
+    # Regime classifier (consensus: structure + slope + DMI direction + ADX)
+    ADX_REGIME_MIN = 25.0
+    DMI_PERIOD = 14
+    REGIME_SLOPE_BARS = 24          # 1H bars (~6x 4H candles) for 4H EMA200 slope
+
+    # --- LONG calibration -----------------------------------------------
+    # Counter-intuitive finding (2026-06-18): TIGHTENING the long entry made the
+    # bot blind to bull markets (0 longs taken during the 2025-05..09 +40%/mo
+    # ETH bull). The long entry is therefore kept LOOSE so it can catch uptrends;
+    # the discrimination is done by REGIME PERSISTENCE instead — an up-regime
+    # must hold for several bars to count, which keeps the real 2025 bull but
+    # rejects the flickering fake-ups of the 2026 chop. Shorts are unchanged.
+    LONG_REQUIRE_SWEEP = False
+    LONG_ADX_MIN = 0.0              # rely on the regime gate, not a 1H ADX floor
+    LONG_VOL_RATIO_MIN = 1.3
+    LONG_RSI_MIN = 0.0
+    REGIME_PERSIST_BARS = 12        # up-regime must hold this many 1H bars to confirm a real trend
+    # With MACRO_SIDE_SWITCH on, the 1D structure already confirms the regime, so
+    # the long entry can use the instantaneous up-regime (faster bull capture)
+    # instead of the slower persistence-confirmed one. Tested False (instantaneous)
+    # = great bull capture (+13%) but bleeds in non-bull (FULL -6%); the confirmed
+    # gate is the robust choice on predominantly non-bull data.
+    LONG_USE_CONFIRMED = True
+    # LONG earlier profit-taking (bank the move before the market reverses)
+    LONG_TP_ROI = 0.12              # primary target (~2.4% price move at x5), was 0.25
+    LONG_TP_EARLY_ROI = 0.06        # early exit floor when overbought
+    LONG_TP_RSI = 68.0              # overbought threshold for early exit, was 82
+    LONG_TP_FLIP_ROI = 0.04         # exit fast if 4H flips bearish while in profit
+
+    # --- Dynamic ATR stoploss (CLAUDE.md #4) -----------------------------
+    # Replaces the old static 5-7% price stop (~7-10x ATR, far too wide) with a
+    # volatility-scaled stop fixed at the entry candle (static, not trailing):
+    # tighter in calm markets, wider in storms. Clamped so x5 leverage never
+    # risks more than SL_MAX_PCT*5 of margin per trade.
+    ATR_STOP_MULT = 3.5             # stop distance = N x ATR at entry (robust 3.5-4.5 plateau)
+    SL_MIN_PCT = 0.015              # floor: 1.5% price move (=7.5% margin at x5)
+    SL_MAX_PCT = 0.06               # ceiling: 6% price move (=30% margin at x5)
+
     # V9.0: SMC CORRECTED (x5 Leverage)
     # Target: 15-20% ROI per trade (Price move 3-4%)
     # Stoploss: 2-3% price move (10-15% margin risk)
@@ -53,9 +140,25 @@ class WolfStrategy(IStrategy):
                  side: str, **kwargs) -> float:
         return 5.0  # HARD-CODE X5 LEVERAGE
 
-    # Cooldown after loss
+    # Risk circuit breakers (cooldown + loss/drawdown guards)
     protections = [
-        {"method": "CooldownPeriod", "stop_duration_candles": 4}
+        {"method": "CooldownPeriod", "stop_duration_candles": 4},
+        {
+            # Halt trading if too many stoplosses hit in a short window.
+            "method": "StoplossGuard",
+            "lookback_period_candles": 24,
+            "trade_limit": 2,
+            "stop_duration_candles": 12,
+            "only_per_pair": False,
+        },
+        {
+            # Halt all trading if portfolio drawdown breaches the threshold.
+            "method": "MaxDrawdown",
+            "lookback_period_candles": 48,
+            "trade_limit": 4,
+            "stop_duration_candles": 12,
+            "max_allowed_drawdown": 0.20,
+        },
     ]
 
     plot_config = {
@@ -80,17 +183,92 @@ class WolfStrategy(IStrategy):
         return 5.0
 
     # ==========================================
+    # PAIR GUARD: refuse any entry outside the validated whitelist
+    # ==========================================
+    def confirm_trade_entry(self, pair: str, order_type: str, amount: float,
+                            rate: float, time_in_force: str, current_time: datetime,
+                            entry_tag, side: str, **kwargs) -> bool:
+        # 1) Pair guard — only the validated whitelist may ever trade.
+        if pair not in self.ALLOWED_PAIRS:
+            logger.warning(
+                f"[PAIR GUARD] Entry on {pair} blocked — strategy is validated "
+                f"for {sorted(self.ALLOWED_PAIRS)} only."
+            )
+            return False
+
+        # 2) Backtest / hyperopt: keep fully automatic so research is unaffected.
+        if self.dp is None or self.dp.runmode.value not in ("live", "dry_run"):
+            return True
+        if not self.MANUAL_APPROVAL_REQUIRED:
+            return True
+
+        # 3) Force entries (human pressed Approve -> REST /forceenter) carry no
+        #    dataframe signal tag, so they bypass the queue and execute.
+        if entry_tag not in self.AUTO_SIGNAL_TAGS:
+            logger.info(f"[APPROVAL] {pair} {side} manual/force entry accepted.")
+            return True
+
+        # 4) Automatic dataframe signal -> never trade directly; queue for approval.
+        try:
+            created = approval_queue.request_entry(
+                pair, side, self._build_signal_context(pair, side, rate, entry_tag)
+            )
+            if created:
+                logger.warning(f"[APPROVAL] {pair} {side} queued for manual approval.")
+            else:
+                logger.info(f"[APPROVAL] {pair} {side} already in-flight / cooldown.")
+        except Exception as exc:  # noqa: BLE001 - never let approval plumbing crash the bot
+            logger.error(f"[APPROVAL] failed to enqueue {pair} {side}: {exc}")
+        return False
+
+    def _build_signal_context(self, pair: str, side: str, rate: float,
+                              entry_tag) -> dict:
+        """Snapshot the lean decision dimensions for the human + Gemini advisor."""
+        dataframe, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
+        if dataframe is None or len(dataframe) == 0:
+            return {"pair": pair, "side": side, "rate": float(rate), "entry_tag": entry_tag}
+        last = dataframe.iloc[-1]
+
+        def num(col):
+            value = last.get(col, None)
+            return None if value is None or pd.isna(value) else float(value)
+
+        def flag(col):
+            return bool(last.get(col, False))
+
+        return {
+            "pair": pair,
+            "side": side,
+            "rate": float(rate),
+            "entry_tag": entry_tag,
+            # Momentum
+            "rsi": num("rsi"), "rsi_4h": num("rsi_4h"), "rsi_1d": num("rsi_1d"),
+            "macdhist": num("macdhist"),
+            # Volatility
+            "atr": num("atr"), "adx": num("adx"),
+            # Volume
+            "volume_ratio": num("volume_ratio"),
+            # Structure (VWAP referee)
+            "close": num("close"), "vwap": num("vwap"),
+            "above_vwap": flag("above_vwap"), "below_vwap": flag("below_vwap"),
+            "ema_200": num("ema_200"),
+            # Higher-timeframe bias
+            "macro_bullish_4h": flag("macro_bullish_4h"),
+            "macro_bearish_4h": flag("macro_bearish_4h"),
+            "trend_bullish_1d": flag("trend_bullish_1d"),
+            "trend_bearish_1d": flag("trend_bearish_1d"),
+        }
+
+    # ==========================================
     # CUSTOM STOPLOSS: ATR-based, below swing low
     # ==========================================
     def custom_stoploss(self, pair: str, trade: Trade, current_time: datetime,
                         current_rate: float, current_profit: float, **kwargs) -> float:
-        
-        # V9.1: Fix "Constant Trailing Stop" bug. 
-        # Calculate static SL from open_rate.
-        # V10.0: SHARK HUNTING (Swing Mode)
-        # Wide SL to survive the market volatility: 5% price move = 25% margin risk
-        sl_pct = 0.05 if "BTC" in pair else 0.07
-        
+
+        # Dynamic ATR-based stop distance, fixed at the entry candle so the stop
+        # stays static (no trailing) — see _atr_stop_pct.
+        sl_pct = self._atr_stop_pct(pair, trade)
+
         # Freqtrade expects the return value relative to current_rate, but divides it by leverage.
         # To maintain a static price-based stop loss, we calculate the exact target price.
         if trade.trade_direction == "short":
@@ -99,6 +277,33 @@ class WolfStrategy(IStrategy):
         else:
             target_sl_price = trade.open_rate * (1 - sl_pct)
             return -trade.leverage * (1 - (target_sl_price / current_rate))
+
+    def _atr_stop_pct(self, pair: str, trade: Trade) -> float:
+        """Volatility-scaled stop distance as a fraction of price.
+
+        Uses the ATR of the ENTRY candle (not the current one) so the stop is
+        static and never trails. Tightens when ATR is small (calm market) and
+        widens when ATR is large (volatility storm), clamped to a safe band so
+        x5 leverage can never risk more than SL_MAX_PCT*leverage of margin.
+        Falls back to the ceiling if ATR is unavailable.
+        """
+        fallback = self.SL_MAX_PCT
+        try:
+            dataframe, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
+            if dataframe is None or len(dataframe) == 0:
+                return fallback
+            entry_time = getattr(trade, "open_date_utc", trade.open_date)
+            at_entry = dataframe.loc[dataframe["date"] <= entry_time]
+            if len(at_entry) == 0:
+                return fallback
+            atr = at_entry["atr"].iloc[-1]
+            if pd.isna(atr) or trade.open_rate <= 0:
+                return fallback
+            sl_pct = self.ATR_STOP_MULT * (float(atr) / float(trade.open_rate))
+            return float(min(max(sl_pct, self.SL_MIN_PCT), self.SL_MAX_PCT))
+        except Exception as exc:  # noqa: BLE001 - never let SL plumbing crash the bot
+            logger.error(f"[ATR-SL] {pair} fallback to {fallback}: {exc}")
+            return fallback
 
     # ==========================================
     # CUSTOM EXIT: SMC Wave Profit Maximizer
@@ -127,23 +332,19 @@ class WolfStrategy(IStrategy):
                 logger.warning(f"[V9.0] {pair} LONG emergency: 4H bearish, RSI={rsi:.0f}")
                 return "smc_emergency_exit"
 
-            # === TARGET ===
-            if current_profit > 0.25:  # 25% ROI = 5% price move
-                return "target_25pct_roi"
+            # === PRIMARY TARGET (banked early; market can reverse any time) ===
+            if current_profit > self.LONG_TP_ROI:
+                return "long_target_roi"
 
-            # === PROFIT PROTECTION LADDER ===
-            # Level 1: RSI extreme overbought (>82) 
-            if current_profit > 0.15 and rsi > 82:
-                return "smc_rsi_extreme_exit"
+            # === EARLY OVERBOUGHT EXIT ===
+            # Take profit on the first sign of exhaustion instead of waiting for
+            # an extreme RSI that often never comes before the reversal.
+            if current_profit > self.LONG_TP_EARLY_ROI and rsi > self.LONG_TP_RSI:
+                return "long_overbought_early"
 
-            # Level 2: RSI overbought (>75) + MFI high
-            if current_profit > 0.20 and rsi > 75 and mfi > 80:
-                return "smc_overbought_exit"
-
-            # Level 3: 4H flipped bearish (Gãy trend lớn)
-            if macro_bear:
-                if current_profit > 0.10:
-                    return "smc_4h_trend_flip_profit"
+            # === 4H TREND FLIP: get out fast while still green ===
+            if macro_bear and current_profit > self.LONG_TP_FLIP_ROI:
+                return "long_4h_flip"
 
         if trade.trade_direction == "short":
             # Emergency: 4H turned bullish while losing
@@ -327,6 +528,20 @@ class WolfStrategy(IStrategy):
         dataframe["volume_ratio"] = dataframe["volume"] / dataframe["volume_mean"].replace(0, 1)
         dataframe["volume_surge"] = dataframe["volume_ratio"] > 2.0  # 2x average = SM activity
 
+        # ------------------------------------------------------------------
+        # VWAP — Institutional referee (CLAUDE.md Rule #3).
+        # Rolling session VWAP (no cumulative-from-start, no lookahead).
+        # NEVER long below VWAP, NEVER short above VWAP.
+        # ------------------------------------------------------------------
+        vwap_window = 24  # 1 day on the 1h timeframe
+        typical_price = (dataframe["high"] + dataframe["low"] + dataframe["close"]) / 3.0
+        tp_volume = typical_price * dataframe["volume"]
+        rolling_tp_volume = tp_volume.rolling(vwap_window, min_periods=1).sum()
+        rolling_volume = dataframe["volume"].rolling(vwap_window, min_periods=1).sum().replace(0, np.nan)
+        dataframe["vwap"] = (rolling_tp_volume / rolling_volume).fillna(dataframe["close"])
+        dataframe["above_vwap"] = dataframe["close"] > dataframe["vwap"]
+        dataframe["below_vwap"] = dataframe["close"] < dataframe["vwap"]
+
         # OBV — Smart Money footprint
         dataframe["obv"]        = ta.OBV(dataframe["close"], dataframe["volume"])
         dataframe["obv_ema_20"] = ta.EMA(dataframe["obv"], timeperiod=20)
@@ -412,6 +627,59 @@ class WolfStrategy(IStrategy):
         )
 
         # ------------------------------------------------------------------
+        # 7. TREND REGIME CLASSIFIER (consensus) — more accurate up/down.
+        # A regime is only called UP (or DOWN) when ALL four orthogonal checks
+        # agree, which sharply reduces false-trend calls during chop:
+        #   1. STRUCTURE : 4H EMA50 vs EMA200 + price on the correct side.
+        #   2. SLOPE     : 4H EMA200 actually moving (not flat/ranging).
+        #   3. DIRECTION : DMI +DI vs -DI — the directional info ADX lacks.
+        #   4. STRENGTH  : 4H ADX above the trend floor.
+        # No lookahead: slope uses past EMA values; DMI/ADX use closed candles.
+        # ------------------------------------------------------------------
+        plus_di  = ta.PLUS_DI(dataframe, timeperiod=self.DMI_PERIOD)
+        minus_di = ta.MINUS_DI(dataframe, timeperiod=self.DMI_PERIOD)
+        ema_50_4h_col  = dataframe["ema_50_4h"]  if "ema_50_4h"  in dataframe.columns else dataframe["ema_50"]
+        ema_200_4h_col = dataframe["ema_200_4h"] if "ema_200_4h" in dataframe.columns else dataframe["ema_200"]
+        adx_4h_col     = dataframe["adx_4h"]     if "adx_4h"     in dataframe.columns else dataframe["adx"]
+
+        struct_up = (ema_50_4h_col > ema_200_4h_col) & (dataframe["close"] > ema_50_4h_col)
+        struct_dn = (ema_50_4h_col < ema_200_4h_col) & (dataframe["close"] < ema_50_4h_col)
+        slope_up  = ema_200_4h_col > ema_200_4h_col.shift(self.REGIME_SLOPE_BARS)
+        slope_dn  = ema_200_4h_col < ema_200_4h_col.shift(self.REGIME_SLOPE_BARS)
+        trending  = adx_4h_col.fillna(0) > self.ADX_REGIME_MIN
+
+        dataframe["regime_up"]   = (struct_up & slope_up & (plus_di > minus_di) & trending).fillna(False)
+        dataframe["regime_down"] = (struct_dn & slope_dn & (minus_di > plus_di) & trending).fillna(False)
+
+        # Persistence-confirmed regime: the gate must hold continuously for
+        # REGIME_PERSIST_BARS bars. This separates a real, sustained trend from
+        # chop that briefly flickers into an up/down reading. No lookahead
+        # (rolling window only looks back).
+        persist = self.REGIME_PERSIST_BARS
+        dataframe["regime_up_confirmed"] = (
+            dataframe["regime_up"].astype(int).rolling(persist, min_periods=persist).min().fillna(0).astype(bool)
+        )
+        dataframe["regime_down_confirmed"] = (
+            dataframe["regime_down"].astype(int).rolling(persist, min_periods=persist).min().fillna(0).astype(bool)
+        )
+
+        # ------------------------------------------------------------------
+        # MACRO SIDE-SWITCH (1D structure) — decides which SIDE may trade.
+        # Slow daily EMA21/EMA50 structure rarely flips (unlike the EMA9 cross),
+        # so the bot stays long-only in a sustained daily uptrend and short-only
+        # in a sustained daily downtrend, never fighting itself on pullbacks.
+        # ------------------------------------------------------------------
+        ema_21_1d_col = dataframe["ema_21_1d"] if "ema_21_1d" in dataframe.columns else dataframe["ema_21"]
+        ema_50_1d_col = dataframe["ema_50_1d"] if "ema_50_1d" in dataframe.columns else dataframe["ema_50"]
+        close_1d_col  = dataframe["close_1d"]  if "close_1d"  in dataframe.columns else dataframe["close"]
+        dataframe["macro_bull_1d"] = (
+            (close_1d_col > ema_50_1d_col) & (ema_21_1d_col > ema_50_1d_col)
+        ).fillna(False)
+        dataframe["macro_bear_1d"] = (
+            (close_1d_col < ema_50_1d_col) & (ema_21_1d_col < ema_50_1d_col)
+        ).fillna(False)
+
+        # ------------------------------------------------------------------
         # X-RAY LOGGING
         # ------------------------------------------------------------------
         last = dataframe.iloc[-1]
@@ -440,52 +708,69 @@ class WolfStrategy(IStrategy):
         dataframe["enter_long"]  = 0
         dataframe["enter_short"] = 0
 
-        common_cond = (dataframe["volume"] > 0)
+        has_volume = dataframe["volume"] > 0
 
         # ==========================================
         # LONG ENTRIES (SHARK HUNTING)
-        # Context: 1D Bullish + 4H Bullish
-        # Trigger: 1H Liquidity Sweep + High Volume + MACD Divergence
+        # Context: 1D Bullish + 4H Bullish, gated by the UP trend-regime.
+        # Trigger: VWAP-aligned pullback + volume + MACD turning up.
         # ==========================================
         long_bias = (
-            (dataframe["trend_bullish_1d"]) & 
+            (dataframe["trend_bullish_1d"]) &
             (dataframe["macro_bullish_4h"]) &
-            (dataframe["rsi_1d"] < 75) &     # Không mua khi Daily đã quá mua (đu đỉnh)
-            (dataframe["rsi_4h"] < 70)       # Không mua khi 4H đang quá mua
+            (dataframe["rsi_1d"].fillna(50) < self.RSI_1D_LONG_MAX) &  # not buying the daily top
+            (dataframe["rsi_4h"].fillna(50) < self.RSI_4H_LONG_MAX)    # not buying the 4H top
         )
 
-        shark_long = (
-            common_cond &
-            long_bias &
-            (dataframe["bull_sweep_recent"] | dataframe["bull_sweep"]) &
-            (dataframe["rsi"] < 60) &            # 1H phải có nhịp chỉnh (RSI < 60), không fomo
-            (dataframe["close"] < dataframe["bb_upper"]) & # Không dính vào dải trên Bollinger
-            (dataframe["volume_ratio"] > 1.5) &  # Sharks are buying
-            (dataframe["macdhist"] > dataframe["macdhist"].shift(1)) # Momentum turning up
+        regime_up_gate = (
+            dataframe["regime_up_confirmed"] if self.LONG_USE_CONFIRMED else dataframe["regime_up"]
         )
+        shark_long = (
+            has_volume &
+            long_bias &
+            regime_up_gate &                      # REGIME GATE (sustained or instantaneous)
+            (dataframe["above_vwap"]) &           # VWAP RULE: never long below VWAP
+            (dataframe["rsi"] < self.RSI_LONG_MAX) &              # need a pullback, not FOMO
+            (dataframe["rsi"] > self.LONG_RSI_MIN) &              # but not a deep reversal dip
+            (dataframe["adx"] > self.LONG_ADX_MIN) &              # real 1H trend strength
+            (dataframe["volume_ratio"] > self.LONG_VOL_RATIO_MIN) &  # stronger volume proof
+            (dataframe["macdhist"] > dataframe["macdhist"].shift(1))  # momentum turning up
+        )
+        if self.LONG_REQUIRE_SWEEP:
+            # Precision trigger: only long when a liquidity sweep printed.
+            shark_long &= (dataframe["bull_sweep_recent"] | dataframe["bull_sweep"])
 
         # ==========================================
         # SHORT ENTRIES (SHARK HUNTING)
+        # Context: 1D Bearish + 4H Bearish, gated by the DOWN trend-regime.
         # ==========================================
         short_bias = (
-            (dataframe["trend_bearish_1d"]) & 
+            (dataframe["trend_bearish_1d"]) &
             (dataframe["macro_bearish_4h"]) &
-            (dataframe["rsi_1d"] > 25) &     # Không Short khi Daily quá bán (bán đáy)
-            (dataframe["rsi_4h"] > 30)       # Không Short khi 4H quá bán
+            (dataframe["rsi_1d"].fillna(50) > self.RSI_1D_SHORT_MIN) &  # not shorting the daily bottom
+            (dataframe["rsi_4h"].fillna(50) > self.RSI_4H_SHORT_MIN)    # not shorting the 4H bottom
         )
 
         shark_short = (
-            common_cond &
+            has_volume &
             short_bias &
-            (dataframe["bear_sweep_recent"] | dataframe["bear_sweep"]) &
-            (dataframe["rsi"] > 40) &            # 1H phải có nhịp hồi (RSI > 40), không bán đuổi
-            (dataframe["close"] > dataframe["bb_lower"]) & # Không dính vào dải dưới Bollinger
-            (dataframe["volume_ratio"] > 1.5) &  # Sharks are selling
-            (dataframe["macdhist"] < dataframe["macdhist"].shift(1)) # Momentum turning down
+            (dataframe["regime_down"]) &          # REGIME GATE: only a clean down-regime
+            (dataframe["below_vwap"]) &           # VWAP RULE: never short above VWAP
+            (dataframe["close"] < dataframe["ema_200"]) &        # structural downtrend on 1H
+            (dataframe["rsi"] > self.RSI_SHORT_MIN) &            # need a bounce, not chasing
+            (dataframe["volume_ratio"] > self.VOL_RATIO_MIN) &   # above-average participation
+            (dataframe["macdhist"] < dataframe["macdhist"].shift(1))  # momentum turning down
         )
 
+        # Macro side-switch: only the side aligned with the 1D structure may fire.
+        if self.MACRO_SIDE_SWITCH:
+            shark_long  &= dataframe["macro_bull_1d"]
+            shark_short &= dataframe["macro_bear_1d"]
+
         # = ::::: ASSIGN ENTRIES ::::: =
-        dataframe.loc[shark_long,  ["enter_long",  "enter_tag"]] = (1, "shark_long_1h")
-        dataframe.loc[shark_short, ["enter_short", "enter_tag"]] = (1, "shark_short_1h")
-        
+        if self.ENABLE_LONG:
+            dataframe.loc[shark_long,  ["enter_long",  "enter_tag"]] = (1, "shark_long_1h")
+        if self.ENABLE_SHORT:
+            dataframe.loc[shark_short, ["enter_short", "enter_tag"]] = (1, "shark_short_1h")
+
         return dataframe
