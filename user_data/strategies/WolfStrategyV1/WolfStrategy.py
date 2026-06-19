@@ -65,7 +65,11 @@ class WolfStrategy(IStrategy):
     # specialist ONLY. The guard below hard-blocks entries on any other pair,
     # even if the config whitelist is changed or a dynamic pairlist is used.
     # ------------------------------------------------------------------
-    ALLOWED_PAIRS = {"BTC/USDT:USDT", "ETH/USDT:USDT", "BNB/USDT:USDT"}
+    # BNB removed 2026-06-19: its bearish signal edge is too thin (53% down-rate
+    # / -0.76% fwd96h vs ETH 59% / -1.98%); fat-tailed counter-bounces hit the
+    # wide ATR stop, dragging its trade win-rate to 31% and net P&L negative.
+    # BTC/ETH-only lifts Jan-Jun +75.5%->+87.5% (PF 1.61->2.16, DD 22.8%->17.7%).
+    ALLOWED_PAIRS = {"BTC/USDT:USDT", "ETH/USDT:USDT"}
 
     # ------------------------------------------------------------------
     # HUMAN-IN-THE-LOOP APPROVAL
