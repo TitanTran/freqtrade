@@ -132,9 +132,9 @@ class WolfStrategy(IStrategy):
     # volatility-scaled stop fixed at the entry candle (static, not trailing):
     # tighter in calm markets, wider in storms. Clamped so x5 leverage never
     # risks more than SL_MAX_PCT*5 of margin per trade.
-    ATR_STOP_MULT = 3.5             # stop distance = N x ATR at entry (robust 3.5-4.5 plateau)
+    ATR_STOP_MULT = 4.5             # stop distance = N x ATR at entry (robust 3.5-4.5 plateau)
     SL_MIN_PCT = 0.015              # floor: 1.5% price move (=7.5% margin at x5)
-    SL_MAX_PCT = 0.06               # ceiling: 6% price move (=30% margin at x5)
+    SL_MAX_PCT = 0.10               # ceiling: 10% price move (storm room to ride volatile trends)
 
     # V9.0: SMC CORRECTED (x5 Leverage)
     # Target: 15-20% ROI per trade (Price move 3-4%)
