@@ -4,8 +4,9 @@
     "stake_amount": "unlimited",
     "tradable_balance_ratio": 0.99,
     "fiat_display_currency": "USD",
-    "dry_run": false,
+    "dry_run": true,
     "timeframe": "1h",
+    "force_entry_enable": true,
     "cancel_open_orders_on_exit": false,
     "unfilledtimeout": {
         "entry": 5,
@@ -39,8 +40,8 @@
     },
     "exchange": {
         "name": "binance",
-        "key": "BXSaUfkzb5gFo6gtQwEMq0cBFE3iW871EZhbC377EGWCAnIcIa62GPaeJWwLmbfY",
-        "secret": "W515LKZfV8385fH7AUVIw9KOXSfs0AJN3gRoUCLBmxIi1C2sre6lVXnolk5DiJ85",
+        "key": "",
+        "secret": "",
         "ccxt_config": {
             "enableRateLimit": true
         },
@@ -100,15 +101,15 @@
     },
     "telegram": {
         "enabled": true,
-        "token": "8457509124:AAFFDpLDiPBryFgD4unX4CirearHxHQL_QA",
-        "chat_id": "1761282679"
+        "token": "",
+        "chat_id": ""
     },
     "api_server": {
         "enabled": true,
-        "listen_ip_address": "0.0.0.0",
+        "listen_ip_address": "127.0.0.1",
         "listen_port": 8080,
         "username": "freqtrader",
-        "password": "SuperSecurePassword"
+        "password": ""
     },
     "trading_mode": "futures",
     "margin_mode": "isolated"

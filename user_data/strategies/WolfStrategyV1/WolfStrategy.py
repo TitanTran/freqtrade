@@ -47,6 +47,17 @@ class WolfStrategy(IStrategy):
     can_short = True
 
     # ------------------------------------------------------------------
+    # STARTUP WARMUP
+    # The slowest indicator is the 1D EMA50: 50 daily candles == 1200 base
+    # (1h) candles. The 4H EMA200 needs 200*4 == 800. Without enough warmup
+    # the long informative EMAs stay NaN, silently disabling every regime
+    # gate (struct_up / struct_dn / macro_*) and producing FALSE "0 trades"
+    # backtests on short timeranges. 1200 + buffer for EMA convergence and
+    # the 24-bar regime slope shift.
+    # ------------------------------------------------------------------
+    startup_candle_count: int = 1300
+
+    # ------------------------------------------------------------------
     # PAIR WHITELIST GUARD
     # Out-of-sample testing (2026-06-08) proved the parameters are curve-fit to
     # BTC/ETH/BNB: on 8 unseen pairs the SAME logic over the SAME window lost
@@ -347,8 +358,10 @@ class WolfStrategy(IStrategy):
                 return "long_4h_flip"
 
         if trade.trade_direction == "short":
-            # Emergency: 4H turned bullish while losing
-            if current_profit < -0.075 and macro_bull and rsi > 62:
+            # Emergency: 4H turned bullish while losing — cut FAST, don't wait
+            # for a deep loss + extreme RSI (that confirmation arrives too late
+            # and turned -7% shorts into -13/-18% in the June 2026 reversal).
+            if current_profit < -0.04 and macro_bull:
                 logger.warning(f"[V9.0] {pair} SHORT emergency: 4H bullish, RSI={rsi:.0f}")
                 return "smc_emergency_exit"
 
