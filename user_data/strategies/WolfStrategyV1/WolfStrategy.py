@@ -87,6 +87,11 @@ class WolfStrategy(IStrategy):
     # ------------------------------------------------------------------
     ENABLE_LONG = True              # long side is the weak side; toggle off to go short-only
     ENABLE_SHORT = True
+    # Breakdown (continuation) short: enter as price breaks a new low with
+    # volume in a daily-bearish, sub-VWAP, sub-EMA200 context — catches the
+    # down-leg EARLY instead of waiting for a bounce (rsi>RSI_SHORT_MIN).
+    ENABLE_BREAKDOWN_SHORT = True
+    BREAKDOWN_RSI_MIN = 35.0        # don't break-short into an already-exhausted bottom
     # Macro side-switch: 1D structure picks WHICH side may trade at all, so the
     # bot is long-only in a sustained daily uptrend and short-only in a daily
     # downtrend, instead of shorting bull pullbacks / longing bear bounces.
@@ -775,6 +780,26 @@ class WolfStrategy(IStrategy):
             (dataframe["macdhist"] < dataframe["macdhist"].shift(1))  # momentum turning down
         )
 
+        # ==========================================
+        # BREAKDOWN SHORT (continuation) — short the down-leg as price breaks a
+        # new low with volume, instead of waiting for a bounce (rsi>RSI_SHORT_MIN
+        # like shark_short does). Still gated by a CONFIRMED regime_down to kill
+        # fakeouts; the RSI floor avoids break-shorting an exhausted bottom that
+        # V-reverses (which, with the wide ATR stop, caused -30%+ tail losses).
+        # ==========================================
+        breakdown_short = (
+            has_volume &
+            (dataframe["macro_bear_1d"]) &                       # 1D structure bearish
+            (dataframe["regime_down"]) &                         # confirmed down-regime (kill noise)
+            (dataframe["below_vwap"]) &                          # VWAP RULE
+            (dataframe["close"] < dataframe["ema_200"]) &        # 1H downtrend
+            (dataframe["close"] < dataframe["recent_low"]) &     # NEW LOW = breakdown
+            (dataframe["close"] < dataframe["open"]) &           # bearish candle
+            (dataframe["volume_ratio"] > self.VOL_RATIO_MIN) &   # participation
+            (dataframe["macdhist"] < 0) &                        # momentum already down
+            (dataframe["rsi"] > self.BREAKDOWN_RSI_MIN)          # not the exhausted bottom
+        )
+
         # Macro side-switch: only the side aligned with the 1D structure may fire.
         if self.MACRO_SIDE_SWITCH:
             shark_long  &= dataframe["macro_bull_1d"]
@@ -783,6 +808,8 @@ class WolfStrategy(IStrategy):
         # = ::::: ASSIGN ENTRIES ::::: =
         if self.ENABLE_LONG:
             dataframe.loc[shark_long,  ["enter_long",  "enter_tag"]] = (1, "shark_long_1h")
+        if self.ENABLE_SHORT and self.ENABLE_BREAKDOWN_SHORT:
+            dataframe.loc[breakdown_short, ["enter_short", "enter_tag"]] = (1, "breakdown_short_1h")
         if self.ENABLE_SHORT:
             dataframe.loc[shark_short, ["enter_short", "enter_tag"]] = (1, "shark_short_1h")
 
