@@ -37,3 +37,11 @@ Sau khi tải dữ liệu xong, bạn chạy thuật toán FreqAI để học m�
 ## 4. Xóa Rác Đào Tạo (Clear FreqAI Models)
 FreqAI sẽ lưu lại các "Bộ Não AI" sau mỗi lần chạy. Nếu bạn sửa đổi thuật toán/chỉ báo quá nhiều và muốn máy học lại từ đầu (để tránh nhiễu), hãy xóa ruột thư mục này đi:
 `d:\PYTHON\freqtrade\user_data\models\wolf_mtf_v6_15m`
+
+
+docker compose run --rm freqtrade train-freqai \
+    --config user_data/strategies/config.json \
+    --strategy-path user_data/strategies \
+    --strategy WolfStrategy \
+    --freqaimodel XGBoostRegressor
+

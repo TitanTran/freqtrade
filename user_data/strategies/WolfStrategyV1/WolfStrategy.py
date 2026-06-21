@@ -100,9 +100,28 @@ class WolfStrategy(IStrategy):
     # bot is long-only in a sustained daily uptrend and short-only in a daily
     # downtrend, instead of shorting bull pullbacks / longing bear bounces.
     MACRO_SIDE_SWITCH = True
+    # Side-switch timeframe. The 1D EMA21/50 structure barely flips (~2-3 weeks
+    # lag to confirm a new trend), which made the bot miss the first leg of every
+    # wave ("slow vs market"). Switching the side-gate to the faster 4H EMA50/200
+    # structure reacts in days instead of weeks, at the cost of more whipsaw in
+    # chop. Set False to fall back to the slower-but-cleaner 1D gate (A/B test).
+    SIDE_SWITCH_USE_4H = True
+    # ASYMMETRIC side-switch option (tested 2026-06-21, kept OFF): forcing longs
+    # onto the slow 1D daily-bull gate did NOT clean-separate bull from bear —
+    # the recent "bear" window has counter-rallies where the daily turns bull, so
+    # 1D longs still fired and lost -24% with worse DD than the 4H gate. There is
+    # no macro gate that captures the bull without also catching bear-rally longs.
+    LONG_SIDE_USE_1D = False
     VOL_RATIO_MIN = 1.3             # was 1.5
-    RSI_LONG_MAX = 62.0
+    RSI_LONG_MAX = 72.0             # buy STRENGTH in a confirmed up-regime, not only dips (was 62 → starved longs)
     RSI_SHORT_MIN = 38.0
+    # NOTE (2026-06-21): a fast short VWAP-reclaim exit was tested to cut the squeeze
+    # losses that drove the Feb-Apr drawdown — it BACKFIRED at every threshold
+    # (-3%/-6% loss, vol 1.2/1.5, VWAP margin). In a downtrend price oscillates
+    # across VWAP constantly, so the exit churns out shorts that would recover to
+    # the +25% target: bear PF 1.46->1.17, profit halved. CONFIRMED: this strategy's
+    # short edge REQUIRES riding through rallies; reaction-exits cannot lower DD.
+    # The only non-churning DD lever is overall leverage.
     RSI_1D_LONG_MAX = 80.0
     RSI_4H_LONG_MAX = 75.0
     RSI_1D_SHORT_MIN = 20.0
@@ -121,19 +140,19 @@ class WolfStrategy(IStrategy):
     # rejects the flickering fake-ups of the 2026 chop. Shorts are unchanged.
     LONG_REQUIRE_SWEEP = False
     LONG_ADX_MIN = 0.0              # rely on the regime gate, not a 1H ADX floor
-    LONG_VOL_RATIO_MIN = 1.3
+    LONG_VOL_RATIO_MIN = 1.0        # trend continuation doesn't need a volume spike (was 1.3 → starved longs)
     LONG_RSI_MIN = 0.0
-    REGIME_PERSIST_BARS = 12        # up-regime must hold this many 1H bars to confirm a real trend
+    REGIME_PERSIST_BARS = 6         # up-regime must hold this many 1H bars (was 12; halved for faster bull capture)
     # With MACRO_SIDE_SWITCH on, the 1D structure already confirms the regime, so
     # the long entry can use the instantaneous up-regime (faster bull capture)
     # instead of the slower persistence-confirmed one. Tested False (instantaneous)
     # = great bull capture (+13%) but bleeds in non-bull (FULL -6%); the confirmed
     # gate is the robust choice on predominantly non-bull data.
-    LONG_USE_CONFIRMED = True
+    LONG_USE_CONFIRMED = True       # persistence-confirmed regime kills bear counter-trend longs (instantaneous bloated DD to 33%)
     # LONG earlier profit-taking (bank the move before the market reverses)
-    LONG_TP_ROI = 0.12              # primary target (~2.4% price move at x5), was 0.25
+    LONG_TP_ROI = 0.20              # ride the bull (~4% price at x5); was 0.12, too tight to capture uptrends
     LONG_TP_EARLY_ROI = 0.06        # early exit floor when overbought
-    LONG_TP_RSI = 68.0              # overbought threshold for early exit, was 82
+    LONG_TP_RSI = 78.0              # overbought threshold for early exit; raised so a strength-entry (rsi up to 72) doesn't insta-exit
     LONG_TP_FLIP_ROI = 0.04         # exit fast if 4H flips bearish while in profit
 
     # --- Dynamic ATR stoploss (CLAUDE.md #4) -----------------------------
@@ -144,6 +163,26 @@ class WolfStrategy(IStrategy):
     ATR_STOP_MULT = 4.5             # stop distance = N x ATR at entry (robust 3.5-4.5 plateau)
     SL_MIN_PCT = 0.015              # floor: 1.5% price move (=7.5% margin at x5)
     SL_MAX_PCT = 0.10               # ceiling: 10% price move (storm room to ride volatile trends)
+    # NOTE (2026-06-21): a TIGHTER long-specific stop (3.0x/6%) was tested to cut
+    # DD and BACKFIRED — bear longs went -12%->-36%, DD 23%->32%. A narrow stop in
+    # choppy price gets hit at the bottom of a pullback, then the still-valid entry
+    # signal re-enters and gets stopped again (churn). This strategy's edge depends
+    # on a WIDE stop to avoid being shaken out; longs share the short stop band.
+    LONG_ATR_STOP_MULT = 4.5
+    LONG_SL_MAX_PCT = 0.10
+
+    # --- FAST-WIN conditional time-stop (đánh nhanh thắng nhanh) ---------
+    # Trade-data finding (2026-06-21): every deep loser bled for DAYS before the
+    # wide ATR stop fired — worst -31%/71h, -27%/66h, -26%/126h, one held 173h.
+    # Meanwhile half the gross profit comes from winners that need >24h to mature
+    # (some 85-117h), so capping winners would kill the edge. The asymmetric fix:
+    # if a trade is STILL underwater after MAX_HOLD_HOURS the thesis has failed —
+    # cut it and free the capital. Trades already in profit are never touched, so
+    # the fat-tail winners are fully preserved. This shortens time-in-loss without
+    # clipping the right tail.
+    ENABLE_TIME_STOP = True
+    MAX_HOLD_HOURS = 48.0           # give the down-leg time to mature (winners need 38-117h)
+    TIME_STOP_MAX_LOSS = -0.12      # only cut DEEP losers (clearly failed), spare near-breakeven trades that recover
 
     # V9.0: SMC CORRECTED (x5 Leverage)
     # Target: 15-20% ROI per trade (Price move 3-4%)
@@ -155,10 +194,18 @@ class WolfStrategy(IStrategy):
     exit_profit_only = False
 
     # Futures Leverage Configuration
+    # Longs are the counter-trend regime bet (they bleed in a bear and drive DD);
+    # running them at LOWER leverage caps their DD contribution proportionally
+    # WITHOUT tightening the churn-prone price stop. Shorts — the robust trend
+    # engine — keep full leverage.
+    LONG_LEVERAGE = 3.0
+    SHORT_LEVERAGE = 5.0
+
     def leverage(self, pair: str, current_time: datetime, current_rate: float,
                  proposed_leverage: float, max_leverage: float, entry_tag: str,
                  side: str, **kwargs) -> float:
-        return 5.0  # HARD-CODE X5 LEVERAGE
+        lev = self.LONG_LEVERAGE if side == "long" else self.SHORT_LEVERAGE
+        return float(min(lev, max_leverage))
 
     # Risk circuit breakers (cooldown + loss/drawdown guards)
     protections = [
@@ -198,10 +245,6 @@ class WolfStrategy(IStrategy):
     }
 
     # ------------------------------------------------------------------
-    def leverage(self, pair, current_time, current_rate, proposed_leverage,
-                 max_leverage, entry_tag, side, **kwargs):
-        return 5.0
-
     # ==========================================
     # PAIR GUARD: refuse any entry outside the validated whitelist
     # ==========================================
@@ -307,7 +350,11 @@ class WolfStrategy(IStrategy):
         x5 leverage can never risk more than SL_MAX_PCT*leverage of margin.
         Falls back to the ceiling if ATR is unavailable.
         """
-        fallback = self.SL_MAX_PCT
+        # Long is the dangerous counter-trend side -> tighter multiple + ceiling.
+        is_long = trade.trade_direction != "short"
+        stop_mult = self.LONG_ATR_STOP_MULT if is_long else self.ATR_STOP_MULT
+        stop_ceil = self.LONG_SL_MAX_PCT if is_long else self.SL_MAX_PCT
+        fallback = stop_ceil
         try:
             dataframe, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
             if dataframe is None or len(dataframe) == 0:
@@ -319,8 +366,8 @@ class WolfStrategy(IStrategy):
             atr = at_entry["atr"].iloc[-1]
             if pd.isna(atr) or trade.open_rate <= 0:
                 return fallback
-            sl_pct = self.ATR_STOP_MULT * (float(atr) / float(trade.open_rate))
-            return float(min(max(sl_pct, self.SL_MIN_PCT), self.SL_MAX_PCT))
+            sl_pct = stop_mult * (float(atr) / float(trade.open_rate))
+            return float(min(max(sl_pct, self.SL_MIN_PCT), stop_ceil))
         except Exception as exc:  # noqa: BLE001 - never let SL plumbing crash the bot
             logger.error(f"[ATR-SL] {pair} fallback to {fallback}: {exc}")
             return fallback
@@ -334,6 +381,15 @@ class WolfStrategy(IStrategy):
         dataframe, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
         if dataframe is None or len(dataframe) == 0:
             return False
+
+        # === FAST-WIN time-stop (both sides) ===
+        # If the trade is still underwater after the hold window, the directional
+        # thesis has not played out — free the capital instead of bleeding for
+        # days. Profitable trades are exempt so the fat-tail winners run on.
+        if self.ENABLE_TIME_STOP:
+            hold_hours = (current_time - trade.open_date_utc).total_seconds() / 3600.0
+            if hold_hours > self.MAX_HOLD_HOURS and current_profit < self.TIME_STOP_MAX_LOSS:
+                return "fast_timestop"
 
         last = dataframe.iloc[-1]
         bear_sweep   = bool(last.get("bear_sweep", False))
@@ -701,6 +757,29 @@ class WolfStrategy(IStrategy):
             (close_1d_col < ema_50_1d_col) & (ema_21_1d_col < ema_50_1d_col)
         ).fillna(False)
 
+        # Faster 4H side-switch (EMA50 vs EMA200 structure) — same directional
+        # role as the 1D switch but confirms in days instead of weeks. Reuses the
+        # 4H EMA columns already resolved for the regime classifier above.
+        dataframe["macro_bull_4h_sw"] = (
+            (ema_50_4h_col > ema_200_4h_col) & (dataframe["close"] > ema_50_4h_col)
+        ).fillna(False)
+        dataframe["macro_bear_4h_sw"] = (
+            (ema_50_4h_col < ema_200_4h_col) & (dataframe["close"] < ema_50_4h_col)
+        ).fillna(False)
+
+        # Unified side gate — pick the timeframe per SIDE_SWITCH_USE_4H so the
+        # entry logic stays agnostic and A/B switching is a one-line flag change.
+        if self.SIDE_SWITCH_USE_4H:
+            dataframe["side_short_ok"] = dataframe["macro_bear_4h_sw"]
+            # Longs optionally forced onto the stricter 1D daily-bull gate.
+            dataframe["side_long_ok"] = (
+                dataframe["macro_bull_1d"] if self.LONG_SIDE_USE_1D
+                else dataframe["macro_bull_4h_sw"]
+            )
+        else:
+            dataframe["side_long_ok"]  = dataframe["macro_bull_1d"]
+            dataframe["side_short_ok"] = dataframe["macro_bear_1d"]
+
         # ------------------------------------------------------------------
         # X-RAY LOGGING
         # ------------------------------------------------------------------
@@ -793,7 +872,7 @@ class WolfStrategy(IStrategy):
         # ==========================================
         breakdown_short = (
             has_volume &
-            (dataframe["macro_bear_1d"]) &                       # 1D structure bearish
+            (dataframe["side_short_ok"]) &                       # HTF structure bearish (4h/1d per flag)
             (dataframe["regime_down"]) &                         # confirmed down-regime (kill noise)
             (dataframe["below_vwap"]) &                          # VWAP RULE
             (dataframe["close"] < dataframe["ema_200"]) &        # 1H downtrend
@@ -804,10 +883,11 @@ class WolfStrategy(IStrategy):
             (dataframe["rsi"] > self.BREAKDOWN_RSI_MIN)          # not the exhausted bottom
         )
 
-        # Macro side-switch: only the side aligned with the 1D structure may fire.
+        # Macro side-switch: only the side aligned with the HTF structure may fire
+        # (4H or 1D per SIDE_SWITCH_USE_4H).
         if self.MACRO_SIDE_SWITCH:
-            shark_long  &= dataframe["macro_bull_1d"]
-            shark_short &= dataframe["macro_bear_1d"]
+            shark_long  &= dataframe["side_long_ok"]
+            shark_short &= dataframe["side_short_ok"]
 
         # = ::::: ASSIGN ENTRIES ::::: =
         if self.ENABLE_LONG:
