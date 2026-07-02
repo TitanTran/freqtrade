@@ -79,7 +79,7 @@ class WolfStrategy(IStrategy):
     # hyperopt always run fully automatic so research is unaffected.
     # ------------------------------------------------------------------
     MANUAL_APPROVAL_REQUIRED = True
-    AUTO_SIGNAL_TAGS = {"shark_long_1h", "shark_short_1h"}
+    AUTO_SIGNAL_TAGS = {"shark_long_1h", "shark_short_1h", "breakdown_short_1h", "retest_short_1h"}
 
     # ------------------------------------------------------------------
     # ENTRY FILTER CONFIG (recalibrated 2026-06-18)
@@ -96,6 +96,16 @@ class WolfStrategy(IStrategy):
     # down-leg EARLY instead of waiting for a bounce (rsi>RSI_SHORT_MIN).
     ENABLE_BREAKDOWN_SHORT = True
     BREAKDOWN_RSI_MIN = 35.0        # don't break-short into an already-exhausted bottom
+    # Retest mode (phase 2, 2026-07-02): instead of market-entering ON the
+    # breakdown candle (worst fill, eats false breakouts), the breakdown only
+    # ARMS a level — entry TRIGGERS when price pulls back up to retest the
+    # broken low and gets rejected (closes back below it). HTF gates are
+    # re-evaluated at the trigger candle. False = legacy chase-the-break.
+    # A/B validated (2026-07-02): bear +34%->+45% PF 1.66->1.93 DD 11.6->8.9,
+    # bull/OOS unchanged. Deployed live 2026-07-02.
+    ENTRY_MODE_RETEST = True
+    RETEST_WINDOW_BARS = 12         # wait up to 12x 1H candles for the pullback
+    RETEST_TOL_ATR = 0.25           # "touched the level" = high within 0.25 ATR below it
     # Macro side-switch: 1D structure picks WHICH side may trade at all, so the
     # bot is long-only in a sustained daily uptrend and short-only in a daily
     # downtrend, instead of shorting bull pullbacks / longing bear bounces.
@@ -215,6 +225,25 @@ class WolfStrategy(IStrategy):
     ENABLE_TIME_STOP = True
     MAX_HOLD_HOURS = 48.0           # give the down-leg time to mature (winners need 38-117h)
     TIME_STOP_MAX_LOSS = -0.12      # only cut DEEP losers (clearly failed), spare near-breakeven trades that recover
+
+    # --- PROFIT-LOCK LADDER (user-requested 2026-07-02) -------------------
+    # Stepped trailing floors on margin ROI: once the trade's PEAK profit
+    # clears a rung by ARM_MARGIN, that rung becomes a hard floor — profit
+    # falling back onto it exits immediately (e.g. peak 4.5% then 3.0% ->
+    # exit at rung 3; peak 7.8% then 6.0% -> exit at rung 6). A floor, not a
+    # cap: a trade that keeps running never gets touched. Peak comes from
+    # trade.min_rate/max_rate which freqtrade updates BEFORE custom_exit in
+    # both live and backtest (strategy/interface.py should_exit).
+    # REJECTED by A/B (2026-07-02), kept OFF: winners average +21% ROI and
+    # retrace through the 3-6% band repeatedly on the way there, so ANY
+    # intermediate floor scalps them to ~+2% while losers (which never reach
+    # +4.5% to arm a rung) stay untouched — bear PF 1.66->0.26, bull
+    # +2%->-22%. Wider rungs 9/15/21 also failed (bear +45%->+4%, PF 1.10).
+    # Structure-based profit protection (long_4h_flip, smc_4h_trend_flip_exit)
+    # already banks profit at reversals without capping the fat tail.
+    ENABLE_PROFIT_LOCK = False
+    PROFIT_LOCK_RUNGS = (0.03, 0.06, 0.09)  # margin-ROI floors, ascending
+    PROFIT_LOCK_ARM_MARGIN = 0.015          # rung arms once peak >= rung + margin
 
     # V9.0: SMC CORRECTED (x5 Leverage)
     # Target: 15-20% ROI per trade (Price move 3-4%)
@@ -420,6 +449,26 @@ class WolfStrategy(IStrategy):
             logger.error(f"[ATR-SL] {pair} fallback to {fallback}: {exc}")
             return fallback
 
+    def _profit_lock_floor(self, trade: Trade) -> float | None:
+        """Highest armed profit-lock rung (margin ROI), or None if unarmed.
+
+        A rung arms once the trade's PEAK profit cleared it by ARM_MARGIN.
+        Peak is derived from the best rate seen (min_rate for shorts,
+        max_rate for longs) so no extra state is needed; falls back to the
+        open rate (peak 0) when the extremes are not yet recorded.
+        """
+        try:
+            best_rate = trade.min_rate if trade.trade_direction == "short" else trade.max_rate
+            if best_rate is None or pd.isna(best_rate):
+                return None
+            peak_profit = trade.calc_profit_ratio(best_rate)
+        except Exception as exc:  # noqa: BLE001 - never let exit plumbing crash the bot
+            logger.error(f"[PROFIT-LOCK] {trade.pair} peak calc failed: {exc}")
+            return None
+        armed = [rung for rung in self.PROFIT_LOCK_RUNGS
+                 if peak_profit >= rung + self.PROFIT_LOCK_ARM_MARGIN]
+        return max(armed) if armed else None
+
     # ==========================================
     # CUSTOM EXIT: SMC Wave Profit Maximizer
     # Philosophy: Let the wave run, exit when SM distributes
@@ -438,6 +487,14 @@ class WolfStrategy(IStrategy):
             hold_hours = (current_time - trade.open_date_utc).total_seconds() / 3600.0
             if hold_hours > self.MAX_HOLD_HOURS and current_profit < self.TIME_STOP_MAX_LOSS:
                 return "fast_timestop"
+
+        # === PROFIT-LOCK LADDER (both sides) ===
+        # Highest armed rung is a hard floor; falling back onto it banks the
+        # profit instead of round-tripping the whole move.
+        if self.ENABLE_PROFIT_LOCK:
+            lock_floor = self._profit_lock_floor(trade)
+            if lock_floor is not None and current_profit <= lock_floor:
+                return f"profit_lock_{lock_floor * 100:.0f}"
 
         last = dataframe.iloc[-1]
         bear_sweep   = bool(last.get("bear_sweep", False))
@@ -942,6 +999,26 @@ class WolfStrategy(IStrategy):
             shark_short &= not_climax
             breakdown_short &= not_climax
 
+        # ==========================================
+        # RETEST SHORT (phase 2) — the breakdown above only ARMS the broken
+        # level; the actual entry fires on the pullback candle that touches
+        # the level from below and gets rejected (closes back under it).
+        # ffill(limit=...) only looks back — no lookahead.
+        # ==========================================
+        breakdown_level = dataframe["recent_low"].where(breakdown_short)
+        retest_level = breakdown_level.ffill(limit=self.RETEST_WINDOW_BARS)
+        retest_short = (
+            has_volume &
+            retest_level.notna() &
+            (~breakdown_short) &                                 # not the breakdown candle itself
+            (dataframe["high"] >= retest_level - self.RETEST_TOL_ATR * dataframe["atr"]) &
+            (dataframe["close"] < retest_level) &                # rejected: closed back below the level
+            (dataframe["close"] < dataframe["open"]) &           # bearish rejection candle
+            (dataframe["side_short_ok"]) &                       # HTF gates re-checked at trigger
+            (dataframe["regime_down"]) &
+            (dataframe["below_vwap"])
+        )
+
         # Macro side-switch: only the side aligned with the HTF structure may fire
         # (4H or 1D per SIDE_SWITCH_USE_4H).
         if self.MACRO_SIDE_SWITCH:
@@ -952,7 +1029,10 @@ class WolfStrategy(IStrategy):
         if self.ENABLE_LONG:
             dataframe.loc[shark_long,  ["enter_long",  "enter_tag"]] = (1, "shark_long_1h")
         if self.ENABLE_SHORT and self.ENABLE_BREAKDOWN_SHORT:
-            dataframe.loc[breakdown_short, ["enter_short", "enter_tag"]] = (1, "breakdown_short_1h")
+            if self.ENTRY_MODE_RETEST:
+                dataframe.loc[retest_short, ["enter_short", "enter_tag"]] = (1, "retest_short_1h")
+            else:
+                dataframe.loc[breakdown_short, ["enter_short", "enter_tag"]] = (1, "breakdown_short_1h")
         if self.ENABLE_SHORT:
             dataframe.loc[shark_short, ["enter_short", "enter_tag"]] = (1, "shark_short_1h")
 
