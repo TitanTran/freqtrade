@@ -155,6 +155,38 @@ class WolfStrategy(IStrategy):
     LONG_TP_RSI = 78.0              # overbought threshold for early exit; raised so a strength-entry (rsi up to 72) doesn't insta-exit
     LONG_TP_FLIP_ROI = 0.04         # exit fast if 4H flips bearish while in profit
 
+    # --- ENTRY VETO FILTERS (diagnosed 2026-07-02) ------------------------
+    # Snapshot analysis of every entry candle across 2026 bear + 2025 bull
+    # baselines (62 trades, scratch/diag_entry_snapshots.py) — thresholds are
+    # data-picked, each flag independent for A/B:
+    #
+    # F1 LONG opposing-sweep veto: 67% of deep-losing longs (<= -12%) fired
+    # while a 4H BEAR sweep was active (SM distributing into the rally) vs 9%
+    # of the rest. Veto longs during an active bear_sweep_4h.
+    # NOTE: the mirrored SHORT-side veto was tested and REJECTED — 36% of
+    # deep-losing shorts had a bull sweep vs 44% of the healthy ones, so it
+    # blocks more winners than losers. Long side only.
+    # A/B validated: bear-2026 PF 1.34->1.40, bull-2025 -21%->-13%, OOS ~flat.
+    ENABLE_LONG_SWEEP_VETO = True
+    # F2 SHORT climax-volume veto: REJECTED by full A/B (2026-07-02), kept
+    # OFF. The trade-level snapshot looked great (deep-losing shorts entered
+    # on climactic vol-2x bars, blocked set summed to a net loss) but in the
+    # real sequenced backtest it collapsed the bear-window edge +37%->-2%
+    # (PF 1.34->0.98): the same high-volume bars also start the big winning
+    # down-legs, and blocking an entry shifts it to a worse later candle.
+    # Lesson: per-trade snapshot sums ignore re-entry sequencing — never
+    # accept a filter without the full backtest matrix.
+    ENABLE_SHORT_CLIMAX_VETO = False
+    SHORT_VOL_RATIO_MAX = 2.0
+    # F3 same-direction concurrency guard: BTC/ETH are ~0.9 correlated; the
+    # 2025-06-23 backtest (-35% & -19%) and 2026-06-29 live (-15% & -15%)
+    # disasters were both "same candle, both pairs, same side" double bets.
+    # One position per direction at a time. Set to 0 to disable (A/B).
+    # A/B validated: the strongest DD lever found so far — bear-2026 DD
+    # 21.6%->14.8% (PF 1.34->1.52), bull-2025 flips -21%->+3%, OOS DD 66%->47%.
+    # Combined with F1 (final config): bear +34% PF 1.66 DD 11.6%.
+    MAX_SAME_DIRECTION_TRADES = 1
+
     # --- Dynamic ATR stoploss (CLAUDE.md #4) -----------------------------
     # Replaces the old static 5-7% price stop (~7-10x ATR, far too wide) with a
     # volatility-scaled stop fixed at the entry candle (static, not trailing):
@@ -259,19 +291,35 @@ class WolfStrategy(IStrategy):
             )
             return False
 
-        # 2) Backtest / hyperopt: keep fully automatic so research is unaffected.
+        # 2) F3 concurrency guard — one position per direction. BTC/ETH move
+        #    ~0.9 correlated, so two same-side positions are one doubled bet
+        #    (both the 2025-06-23 and 2026-06-29 double losses). Runs in
+        #    backtest too so its effect is measurable in A/B runs.
+        if self.MAX_SAME_DIRECTION_TRADES > 0:
+            same_direction_count = sum(
+                1 for open_trade in Trade.get_trades_proxy(is_open=True)
+                if open_trade.trade_direction == side
+            )
+            if same_direction_count >= self.MAX_SAME_DIRECTION_TRADES:
+                logger.warning(
+                    f"[CONCURRENCY GUARD] {pair} {side} blocked — "
+                    f"{same_direction_count} open {side} trade(s) already."
+                )
+                return False
+
+        # 3) Backtest / hyperopt: keep fully automatic so research is unaffected.
         if self.dp is None or self.dp.runmode.value not in ("live", "dry_run"):
             return True
         if not self.MANUAL_APPROVAL_REQUIRED:
             return True
 
-        # 3) Force entries (human pressed Approve -> REST /forceenter) carry no
+        # 4) Force entries (human pressed Approve -> REST /forceenter) carry no
         #    dataframe signal tag, so they bypass the queue and execute.
         if entry_tag not in self.AUTO_SIGNAL_TAGS:
             logger.info(f"[APPROVAL] {pair} {side} manual/force entry accepted.")
             return True
 
-        # 4) Automatic dataframe signal -> never trade directly; queue for approval.
+        # 5) Automatic dataframe signal -> never trade directly; queue for approval.
         try:
             created = approval_queue.request_entry(
                 pair, side, self._build_signal_context(pair, side, rate, entry_tag)
@@ -840,6 +888,10 @@ class WolfStrategy(IStrategy):
         if self.LONG_REQUIRE_SWEEP:
             # Precision trigger: only long when a liquidity sweep printed.
             shark_long &= (dataframe["bull_sweep_recent"] | dataframe["bull_sweep"])
+        if self.ENABLE_LONG_SWEEP_VETO:
+            # F1: an active 4H bear sweep = SM distributing into this rally;
+            # longing here is buying the trap (see ENTRY VETO FILTERS above).
+            shark_long &= ~dataframe["bear_sweep_4h"].fillna(False).astype(bool)
 
         # ==========================================
         # SHORT ENTRIES (SHARK HUNTING)
@@ -882,6 +934,13 @@ class WolfStrategy(IStrategy):
             (dataframe["macdhist"] < 0) &                        # momentum already down
             (dataframe["rsi"] > self.BREAKDOWN_RSI_MIN)          # not the exhausted bottom
         )
+
+        if self.ENABLE_SHORT_CLIMAX_VETO:
+            # F2: refuse to short a climactic (blow-off) volume bar — that bar
+            # tends to END the down-leg, not extend it (see ENTRY VETO FILTERS).
+            not_climax = dataframe["volume_ratio"] <= self.SHORT_VOL_RATIO_MAX
+            shark_short &= not_climax
+            breakdown_short &= not_climax
 
         # Macro side-switch: only the side aligned with the HTF structure may fire
         # (4H or 1D per SIDE_SWITCH_USE_4H).
