@@ -140,6 +140,19 @@ class WolfStrategy(IStrategy):
     ADX_REGIME_MIN = 25.0
     DMI_PERIOD = 14
     REGIME_SLOPE_BARS = 24          # 1H bars (~6x 4H candles) for 4H EMA200 slope
+    # Structure speed (2026-07-05): EMA50/EMA200 on 4H has ~33-day memory,
+    # confirming trend changes weeks late and missing the first leg of
+    # V-shaped recoveries. A/B matrix (scratch/ab_struct_speed.py) tested
+    # 50/200 (baseline) vs 20/50 (fast) vs 25/99 (chart-matched) across
+    # bear-2026 + bull-2025 + 6-pair OOS. 25/99 won on nearly every axis:
+    # bear +45%->+67% PF 1.93->2.35 at the SAME 8.9% DD (20/50 raised bear DD
+    # to 12.7%), bull +2.2%->+13.9% PF 1.06->1.37 DD 17.4%->13.6%. OOS stays
+    # PF<1 regardless of pair (structural non-generalization, not fixable
+    # here). Deployed live 2026-07-05. The fast/slow EMA pair used by both the
+    # regime classifier structure check and the 4H side-switch gate stays
+    # configurable here for future A/B tests.
+    STRUCT_FAST_EMA_PERIOD = 25
+    STRUCT_SLOW_EMA_PERIOD = 99
 
     # --- LONG calibration -----------------------------------------------
     # Counter-intuitive finding (2026-06-18): TIGHTENING the long entry made the
@@ -605,7 +618,9 @@ class WolfStrategy(IStrategy):
 
         inf_4h = self.dp.get_pair_dataframe(pair=metadata["pair"], timeframe="4h")
         inf_4h["ema_20"]  = ta.EMA(inf_4h, timeperiod=20)
+        inf_4h["ema_25"]  = ta.EMA(inf_4h, timeperiod=25)
         inf_4h["ema_50"]  = ta.EMA(inf_4h, timeperiod=50)
+        inf_4h["ema_99"]  = ta.EMA(inf_4h, timeperiod=99)
         inf_4h["ema_200"] = ta.EMA(inf_4h, timeperiod=200)
         inf_4h["rsi"]     = ta.RSI(inf_4h, timeperiod=14)   # -> rsi_4h after merge
         inf_4h["adx"]     = ta.ADX(inf_4h, timeperiod=14)   # -> adx_4h after merge
@@ -813,22 +828,25 @@ class WolfStrategy(IStrategy):
         # 7. TREND REGIME CLASSIFIER (consensus) — more accurate up/down.
         # A regime is only called UP (or DOWN) when ALL four orthogonal checks
         # agree, which sharply reduces false-trend calls during chop:
-        #   1. STRUCTURE : 4H EMA50 vs EMA200 + price on the correct side.
-        #   2. SLOPE     : 4H EMA200 actually moving (not flat/ranging).
+        #   1. STRUCTURE : 4H EMA pair (STRUCT_FAST_EMA_PERIOD/STRUCT_SLOW_EMA_PERIOD)
+        #                  + price on the correct side.
+        #   2. SLOPE     : the slow 4H EMA actually moving (not flat/ranging).
         #   3. DIRECTION : DMI +DI vs -DI — the directional info ADX lacks.
         #   4. STRENGTH  : 4H ADX above the trend floor.
         # No lookahead: slope uses past EMA values; DMI/ADX use closed candles.
         # ------------------------------------------------------------------
         plus_di  = ta.PLUS_DI(dataframe, timeperiod=self.DMI_PERIOD)
         minus_di = ta.MINUS_DI(dataframe, timeperiod=self.DMI_PERIOD)
-        ema_50_4h_col  = dataframe["ema_50_4h"]  if "ema_50_4h"  in dataframe.columns else dataframe["ema_50"]
-        ema_200_4h_col = dataframe["ema_200_4h"] if "ema_200_4h" in dataframe.columns else dataframe["ema_200"]
-        adx_4h_col     = dataframe["adx_4h"]     if "adx_4h"     in dataframe.columns else dataframe["adx"]
+        fast_col_name = f"ema_{int(self.STRUCT_FAST_EMA_PERIOD)}_4h"
+        slow_col_name = f"ema_{int(self.STRUCT_SLOW_EMA_PERIOD)}_4h"
+        ema_fast_4h_col = dataframe[fast_col_name] if fast_col_name in dataframe.columns else dataframe["ema_50"]
+        ema_slow_4h_col = dataframe[slow_col_name] if slow_col_name in dataframe.columns else dataframe["ema_200"]
+        adx_4h_col = dataframe["adx_4h"] if "adx_4h" in dataframe.columns else dataframe["adx"]
 
-        struct_up = (ema_50_4h_col > ema_200_4h_col) & (dataframe["close"] > ema_50_4h_col)
-        struct_dn = (ema_50_4h_col < ema_200_4h_col) & (dataframe["close"] < ema_50_4h_col)
-        slope_up  = ema_200_4h_col > ema_200_4h_col.shift(self.REGIME_SLOPE_BARS)
-        slope_dn  = ema_200_4h_col < ema_200_4h_col.shift(self.REGIME_SLOPE_BARS)
+        struct_up = (ema_fast_4h_col > ema_slow_4h_col) & (dataframe["close"] > ema_fast_4h_col)
+        struct_dn = (ema_fast_4h_col < ema_slow_4h_col) & (dataframe["close"] < ema_fast_4h_col)
+        slope_up  = ema_slow_4h_col > ema_slow_4h_col.shift(self.REGIME_SLOPE_BARS)
+        slope_dn  = ema_slow_4h_col < ema_slow_4h_col.shift(self.REGIME_SLOPE_BARS)
         trending  = adx_4h_col.fillna(0) > self.ADX_REGIME_MIN
 
         dataframe["regime_up"]   = (struct_up & slope_up & (plus_di > minus_di) & trending).fillna(False)
@@ -862,14 +880,15 @@ class WolfStrategy(IStrategy):
             (close_1d_col < ema_50_1d_col) & (ema_21_1d_col < ema_50_1d_col)
         ).fillna(False)
 
-        # Faster 4H side-switch (EMA50 vs EMA200 structure) — same directional
-        # role as the 1D switch but confirms in days instead of weeks. Reuses the
-        # 4H EMA columns already resolved for the regime classifier above.
+        # Faster 4H side-switch (structure EMA pair, speed set by
+        # STRUCT_FAST_EMA_PERIOD/STRUCT_SLOW_EMA_PERIOD) — same directional
+        # role as the 1D switch but confirms in days instead of weeks. Reuses
+        # the 4H EMA columns already resolved for the regime classifier above.
         dataframe["macro_bull_4h_sw"] = (
-            (ema_50_4h_col > ema_200_4h_col) & (dataframe["close"] > ema_50_4h_col)
+            (ema_fast_4h_col > ema_slow_4h_col) & (dataframe["close"] > ema_fast_4h_col)
         ).fillna(False)
         dataframe["macro_bear_4h_sw"] = (
-            (ema_50_4h_col < ema_200_4h_col) & (dataframe["close"] < ema_50_4h_col)
+            (ema_fast_4h_col < ema_slow_4h_col) & (dataframe["close"] < ema_fast_4h_col)
         ).fillna(False)
 
         # Unified side gate — pick the timeframe per SIDE_SWITCH_USE_4H so the
