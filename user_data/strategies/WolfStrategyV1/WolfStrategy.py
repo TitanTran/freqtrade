@@ -209,6 +209,20 @@ class WolfStrategy(IStrategy):
     # 21.6%->14.8% (PF 1.34->1.52), bull-2025 flips -21%->+3%, OOS DD 66%->47%.
     # Combined with F1 (final config): bear +34% PF 1.66 DD 11.6%.
     MAX_SAME_DIRECTION_TRADES = 1
+    # F4 EXTENSION VETO (designed 2026-07-06 from the live audit): the entry
+    # stack is a confluence of LAGGING gates (1D trend + 4H structure + regime
+    # persistence + rolling VWAP), so a trade fires the moment the SLOWEST
+    # gate opens — i.e. at maximum lag, deep into the leg. All 3 live losses
+    # (-19% account) carried this signature: entries sat >= 3.3 x ATR(4h)
+    # away from the slow structural EMA (BTC short -3.5, ETH short -3.3,
+    # ETH long +3.8). F4 refuses to enter an exhausted leg: longs only while
+    # price <= +MAX x ATR(4h) above the slow EMA, shorts only while price
+    # >= -MAX x ATR(4h) below it. Threshold 3.0 was chosen A PRIORI as the
+    # loosest veto that still blocks the audit signature — deliberately NOT
+    # grid-searched (the 2026 backtest window is exhausted; in-sample runs
+    # are sanity checks only). Acceptance criterion: forward/dry-run sample.
+    ENABLE_EXTENSION_VETO = True
+    EXTENSION_MAX_ATR = 3.0
 
     # --- Dynamic ATR stoploss (CLAUDE.md #4) -----------------------------
     # Replaces the old static 5-7% price stop (~7-10x ATR, far too wide) with a
@@ -865,6 +879,19 @@ class WolfStrategy(IStrategy):
         )
 
         # ------------------------------------------------------------------
+        # EXTENSION (leg maturity) — ATR(4h)-normalized distance of price
+        # from the slow structural EMA. Feeds the F4 extension veto: a large
+        # positive value = up-leg already mature (late long = buying the top),
+        # a large negative value = down-leg exhausted (late short = selling
+        # the bottom). NaN-safe: unknown ATR (warmup) resolves to 0 = no veto;
+        # the regime gates are NaN-gated during warmup anyway.
+        # ------------------------------------------------------------------
+        atr_4h_ext = dataframe["atr_4h"] if "atr_4h" in dataframe.columns else dataframe["atr"]
+        dataframe["extension_atr"] = (
+            (dataframe["close"] - ema_slow_4h_col) / atr_4h_ext.replace(0, np.nan)
+        ).fillna(0.0)
+
+        # ------------------------------------------------------------------
         # MACRO SIDE-SWITCH (1D structure) — decides which SIDE may trade.
         # Slow daily EMA21/EMA50 structure rarely flips (unlike the EMA9 cross),
         # so the bot stays long-only in a sustained daily uptrend and short-only
@@ -1018,6 +1045,16 @@ class WolfStrategy(IStrategy):
             shark_short &= not_climax
             breakdown_short &= not_climax
 
+        # F4: extension veto — refuse to enter an exhausted leg (see ENTRY
+        # VETO FILTERS). Applied to breakdown BEFORE retest derivation so an
+        # over-extended breakdown never arms a retest level either.
+        not_extended_up = dataframe["extension_atr"] <= self.EXTENSION_MAX_ATR
+        not_extended_dn = dataframe["extension_atr"] >= -self.EXTENSION_MAX_ATR
+        if self.ENABLE_EXTENSION_VETO:
+            shark_long &= not_extended_up
+            shark_short &= not_extended_dn
+            breakdown_short &= not_extended_dn
+
         # ==========================================
         # RETEST SHORT (phase 2) — the breakdown above only ARMS the broken
         # level; the actual entry fires on the pullback candle that touches
@@ -1037,6 +1074,9 @@ class WolfStrategy(IStrategy):
             (dataframe["regime_down"]) &
             (dataframe["below_vwap"])
         )
+        if self.ENABLE_EXTENSION_VETO:
+            # F4 re-checked at the retest trigger candle, like the HTF gates.
+            retest_short &= not_extended_dn
 
         # Macro side-switch: only the side aligned with the HTF structure may fire
         # (4H or 1D per SIDE_SWITCH_USE_4H).
