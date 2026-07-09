@@ -2,7 +2,7 @@ import logging
 import os
 import sys
 from freqtrade.strategy import IStrategy, merge_informative_pair
-from freqtrade.enums import RunMode
+from freqtrade.enums import CandleType, RunMode
 from pandas import DataFrame
 import pandas as pd
 import talib.abstract as ta
@@ -13,6 +13,7 @@ import numpy as np
 # Make the sibling approval_queue module importable regardless of CWD.
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import approval_queue  # noqa: E402
+import market_positioning  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +224,37 @@ class WolfStrategy(IStrategy):
     # are sanity checks only). Acceptance criterion: forward/dry-run sample.
     ENABLE_EXTENSION_VETO = True
     EXTENSION_MAX_ATR = 3.0
+    # F5 POSITIONING VETO (designed 2026-07-09): don't JOIN a crowded trade.
+    # Market makers hunt the crowd's stops, and the only two crowd-positioning
+    # windows retail can read are the FUNDING RATE (freqtrade-native candle
+    # type, works in backtest too) and OPEN INTEREST (public API, ~30 days of
+    # history -> forward-validation only, per policy). Both flags independent
+    # for A/B. Thresholds anchored to Binance's STRUCTURAL baseline (the
+    # +0.01%/8h interest component), calibrated only against the FEATURE
+    # distribution (2025-26: funding pins at +0.01% in normal bulls, never
+    # exceeded +0.01%; negative tail p05 ~ -0.005%) — never against P&L
+    # (the 2026 backtest window is exhausted; no grid-search allowed):
+    # - LONG veto at >= 2x baseline (+0.02%/8h): true retail-mania premium
+    #   (2024-style); has NOT fired in 18 months of data, so it is pure
+    #   tail insurance and cannot re-starve the long side.
+    # - SHORT veto at <= -1x baseline (-0.01%/8h): the interest component
+    #   fully inverted = shorts paying heavily = crowded shorts (squeeze
+    #   fuel); ~0.5-2% of hours in 2025-26.
+    # - OI: >= 10% rise over 24h WITH price moving the same way = late-crowd
+    #   pile-in; entering with them means being squeeze fuel. Majors carry a
+    #   huge OI base, so 24h swings are small (20-day observed max +7.8% BTC
+    #   / +4.2% ETH, p95 ~ +3-6%); 10% sits above ordinary flow but within
+    #   reach of real pile-in events. Price deadband avoids classifying a
+    #   flat drift as direction.
+    # Fail-open: missing/unavailable data resolves to NEUTRAL (no veto).
+    # Acceptance criterion: forward/dry-run sample, NOT in-sample backtests.
+    ENABLE_FUNDING_VETO = True
+    FUNDING_VETO_LONG_MAX = 0.0002      # veto longs at/above (crowd long)
+    FUNDING_VETO_SHORT_MIN = -0.0001    # veto shorts at/below (crowd short)
+    ENABLE_OI_VETO = True
+    OI_LOOKBACK_BARS = 24               # 24 x 1h = 1 day of OI build-up
+    OI_SURGE_PCT = 0.10                 # +10% OI in a day = crowded (majors)
+    OI_PRICE_DEADBAND_PCT = 0.005       # <0.5% price move = no clear crowd side
 
     # --- Dynamic ATR stoploss (CLAUDE.md #4) -----------------------------
     # Replaces the old static 5-7% price stop (~7-10x ATR, far too wide) with a
@@ -424,6 +456,11 @@ class WolfStrategy(IStrategy):
             "macro_bearish_4h": flag("macro_bearish_4h"),
             "trend_bullish_1d": flag("trend_bullish_1d"),
             "trend_bearish_1d": flag("trend_bearish_1d"),
+            # F5 positioning (crowd read for the human + Gemini advisor)
+            "funding_rate": num("funding_rate"),
+            "oi_change_24h_pct": num("oi_change_pct"),
+            "oi_crowded_long": flag("oi_crowded_long"),
+            "oi_crowded_short": flag("oi_crowded_short"),
         }
 
     # ==========================================
@@ -592,8 +629,83 @@ class WolfStrategy(IStrategy):
         return (
             [(pair, "1d") for pair in pairs] +
             [(pair, "4h") for pair in pairs] +
-            [(pair, "1h") for pair in pairs]
+            [(pair, "1h") for pair in pairs] +
+            # F5: funding-rate candles (freqtrade-native candle type; the
+            # rate value lands in the 'open' column). Binance stores funding
+            # on the 1h grid (funding_fee_timeframe).
+            [(pair, "1h", CandleType.FUNDING_RATE) for pair in pairs]
         )
+
+    # ==========================================
+    # F5 POSITIONING DATA (funding rate + open interest)
+    # ==========================================
+    def _merge_positioning(self, dataframe: DataFrame, pair: str) -> DataFrame:
+        """Merge crowd-positioning series and derive the F5 crowd flags.
+
+        Both series merge backward-asof (last value KNOWN at candle time —
+        no lookahead) and default to NEUTRAL (0.0 / False) whenever data is
+        missing, so the veto fails open instead of blocking or crashing.
+        """
+        # --- FUNDING RATE (native candle type; also available in backtest
+        # because funding history ships with futures OHLCV downloads).
+        funding = None
+        try:
+            funding = self.dp.get_pair_dataframe(
+                pair=pair, candle_type=CandleType.FUNDING_RATE
+            )
+        except Exception as exc:  # noqa: BLE001 - positioning data must never crash the bot
+            logger.warning(f"[F5] {pair} funding candles unavailable (veto neutral): {exc}")
+        if funding is not None and len(funding) > 0:
+            funding_series = funding[["date", "open"]].rename(
+                columns={"open": "funding_rate"}
+            )
+            dataframe = pd.merge_asof(
+                dataframe, funding_series, on="date", direction="backward"
+            )
+        else:
+            dataframe["funding_rate"] = 0.0
+        dataframe["funding_rate"] = dataframe["funding_rate"].fillna(0.0)
+
+        # --- OPEN INTEREST (public exchange API; live/dry-run only — the
+        # exchange keeps ~30 days, matching the forward-validation policy).
+        oi_frame = pd.DataFrame()
+        if self.dp is not None and self.dp.runmode.value in ("live", "dry_run"):
+            oi_frame = market_positioning.oi_history(pair)
+        if len(oi_frame) > 0:
+            dataframe = pd.merge_asof(
+                dataframe, oi_frame, on="date", direction="backward"
+            )
+        else:
+            dataframe["open_interest"] = np.nan
+
+        # 24h build-up of positioning and the price move that accompanied it.
+        lookback = self.OI_LOOKBACK_BARS
+        oi_prev = dataframe["open_interest"].shift(lookback)
+        dataframe["oi_change_pct"] = (
+            (dataframe["open_interest"] - oi_prev) / oi_prev.replace(0, np.nan)
+        ).fillna(0.0)
+        price_prev = dataframe["close"].shift(lookback)
+        price_change = (
+            (dataframe["close"] - price_prev) / price_prev.replace(0, np.nan)
+        ).fillna(0.0)
+
+        # Crowd flags: OI surged AND price moved with it -> the crowd piled
+        # onto that side; entering WITH them is being squeeze fuel.
+        oi_surge = dataframe["oi_change_pct"] >= self.OI_SURGE_PCT
+        dataframe["oi_crowded_long"] = (
+            oi_surge & (price_change > self.OI_PRICE_DEADBAND_PCT)
+        ).fillna(False)
+        dataframe["oi_crowded_short"] = (
+            oi_surge & (price_change < -self.OI_PRICE_DEADBAND_PCT)
+        ).fillna(False)
+
+        dataframe["funding_crowded_long"] = (
+            dataframe["funding_rate"] >= self.FUNDING_VETO_LONG_MAX
+        ).fillna(False)
+        dataframe["funding_crowded_short"] = (
+            dataframe["funding_rate"] <= self.FUNDING_VETO_SHORT_MIN
+        ).fillna(False)
+        return dataframe
 
     # ==========================================
     # INDICATORS — SMC Framework
@@ -932,6 +1044,11 @@ class WolfStrategy(IStrategy):
             dataframe["side_short_ok"] = dataframe["macro_bear_1d"]
 
         # ------------------------------------------------------------------
+        # F5 POSITIONING (funding rate + open interest crowd flags)
+        # ------------------------------------------------------------------
+        dataframe = self._merge_positioning(dataframe, metadata["pair"])
+
+        # ------------------------------------------------------------------
         # X-RAY LOGGING
         # ------------------------------------------------------------------
         last = dataframe.iloc[-1]
@@ -940,7 +1057,10 @@ class WolfStrategy(IStrategy):
             f"4H: {'BULL' if last.get('macro_bullish_4h') else 'BEAR' if last.get('macro_bearish_4h') else 'NEUT'} | "
             f"Sweep15m: {'BULL' if last.get('bull_sweep_recent') else 'BEAR' if last.get('bear_sweep_recent') else '-'} | "
             f"BOS: {'BULL' if last.get('bos_bullish') else 'BEAR' if last.get('bos_bearish') else '-'} | "
-            f"RSI={last['rsi']:.0f} ADX={last['adx']:.0f} Vol={last['volume_ratio']:.1f}x"
+            f"RSI={last['rsi']:.0f} ADX={last['adx']:.0f} Vol={last['volume_ratio']:.1f}x | "
+            f"Fund={last.get('funding_rate', 0.0) * 100:.4f}% "
+            f"OI24h={last.get('oi_change_pct', 0.0) * 100:+.1f}% "
+            f"Crowd: {'LONG' if last.get('oi_crowded_long') or last.get('funding_crowded_long') else 'SHORT' if last.get('oi_crowded_short') or last.get('funding_crowded_short') else '-'}"
         )
 
         return dataframe
@@ -1055,6 +1175,21 @@ class WolfStrategy(IStrategy):
             shark_short &= not_extended_dn
             breakdown_short &= not_extended_dn
 
+        # F5: positioning veto — never JOIN a crowded side (see ENTRY VETO
+        # FILTERS). Applied to breakdown BEFORE retest derivation so a
+        # crowded breakdown never arms a retest level either.
+        not_crowded_long = pd.Series(True, index=dataframe.index)
+        not_crowded_short = pd.Series(True, index=dataframe.index)
+        if self.ENABLE_FUNDING_VETO:
+            not_crowded_long &= ~dataframe["funding_crowded_long"]
+            not_crowded_short &= ~dataframe["funding_crowded_short"]
+        if self.ENABLE_OI_VETO:
+            not_crowded_long &= ~dataframe["oi_crowded_long"]
+            not_crowded_short &= ~dataframe["oi_crowded_short"]
+        shark_long &= not_crowded_long
+        shark_short &= not_crowded_short
+        breakdown_short &= not_crowded_short
+
         # ==========================================
         # RETEST SHORT (phase 2) — the breakdown above only ARMS the broken
         # level; the actual entry fires on the pullback candle that touches
@@ -1077,6 +1212,8 @@ class WolfStrategy(IStrategy):
         if self.ENABLE_EXTENSION_VETO:
             # F4 re-checked at the retest trigger candle, like the HTF gates.
             retest_short &= not_extended_dn
+        # F5 re-checked at the retest trigger candle as well.
+        retest_short &= not_crowded_short
 
         # Macro side-switch: only the side aligned with the HTF structure may fire
         # (4H or 1D per SIDE_SWITCH_USE_4H).
