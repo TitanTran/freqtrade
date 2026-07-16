@@ -272,6 +272,16 @@ class WolfStrategy(IStrategy):
     LONG_ATR_STOP_MULT = 4.5
     LONG_SL_MAX_PCT = 0.10
 
+    # --- Risk-based position sizing (custom_stake_amount) -----------------
+    # config.json stake_amount="unlimited" only splits available balance
+    # evenly across max_open_trades slots — it ignores how wide the current
+    # ATR stop is, so a trade with a storm-wide stop and a trade with a calm
+    # narrow stop risk the same $ amount at very different $ loss-if-stopped.
+    # This sizes each trade so the $ loss AT the ATR stop equals a fixed
+    # RISK_PER_TRADE_PCT of total equity, independent of volatility regime.
+    ENABLE_RISK_BASED_SIZING = True
+    RISK_PER_TRADE_PCT = 0.005      # 0.5% of equity risked per trade at the ATR stop
+
     # --- FAST-WIN conditional time-stop (đánh nhanh thắng nhanh) ---------
     # Trade-data finding (2026-06-21): every deep loser bled for DAYS before the
     # wide ATR stop fired — worst -31%/71h, -27%/66h, -26%/126h, one held 173h.
@@ -493,7 +503,6 @@ class WolfStrategy(IStrategy):
         """
         # Long is the dangerous counter-trend side -> tighter multiple + ceiling.
         is_long = trade.trade_direction != "short"
-        stop_mult = self.LONG_ATR_STOP_MULT if is_long else self.ATR_STOP_MULT
         stop_ceil = self.LONG_SL_MAX_PCT if is_long else self.SL_MAX_PCT
         fallback = stop_ceil
         try:
@@ -505,13 +514,61 @@ class WolfStrategy(IStrategy):
             if len(at_entry) == 0:
                 return fallback
             atr = at_entry["atr"].iloc[-1]
-            if pd.isna(atr) or trade.open_rate <= 0:
-                return fallback
-            sl_pct = stop_mult * (float(atr) / float(trade.open_rate))
-            return float(min(max(sl_pct, self.SL_MIN_PCT), stop_ceil))
+            return self._atr_stop_pct_from_atr(atr, trade.open_rate, is_long)
         except Exception as exc:  # noqa: BLE001 - never let SL plumbing crash the bot
             logger.error(f"[ATR-SL] {pair} fallback to {fallback}: {exc}")
             return fallback
+
+    def _atr_stop_pct_from_atr(self, atr: float, price: float, is_long: bool) -> float:
+        """Shared ATR-stop-% math, given an already-looked-up ATR value.
+
+        Factored out of _atr_stop_pct so custom_stake_amount can compute the
+        SAME stop distance BEFORE the trade exists (no Trade object yet),
+        keeping risk-based sizing consistent with the stop that will actually
+        be set once the position opens.
+        """
+        stop_mult = self.LONG_ATR_STOP_MULT if is_long else self.ATR_STOP_MULT
+        stop_ceil = self.LONG_SL_MAX_PCT if is_long else self.SL_MAX_PCT
+        if pd.isna(atr) or price <= 0:
+            return stop_ceil
+        sl_pct = stop_mult * (float(atr) / float(price))
+        return float(min(max(sl_pct, self.SL_MIN_PCT), stop_ceil))
+
+    # ==========================================
+    # CUSTOM STAKE AMOUNT: fixed %-equity risk at the ATR stop
+    # ==========================================
+    def custom_stake_amount(self, pair: str, current_time: datetime, current_rate: float,
+                            proposed_stake: float, min_stake: float | None, max_stake: float,
+                            leverage: float, entry_tag: str | None, side: str,
+                            **kwargs) -> float:
+        """Size the trade so $ loss AT the ATR stop == RISK_PER_TRADE_PCT of equity.
+
+        margin_stake * sl_pct * leverage is the margin lost if the ATR stop
+        fires; solving for margin_stake against a fixed $ risk budget makes
+        realized risk constant across volatility regimes, instead of the
+        default equal-split sizing where a storm-wide stop silently risks
+        far more than a calm-market narrow stop for the same stake.
+        """
+        if not self.ENABLE_RISK_BASED_SIZING:
+            return proposed_stake
+        try:
+            is_long = side != "short"
+            dataframe, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
+            if dataframe is None or len(dataframe) == 0 or leverage <= 0:
+                return proposed_stake
+            atr = dataframe["atr"].iloc[-1]
+            sl_pct = self._atr_stop_pct_from_atr(atr, current_rate, is_long)
+            if sl_pct <= 0:
+                return proposed_stake
+            equity = self.wallets.get_total_stake_amount()
+            risk_amount = equity * self.RISK_PER_TRADE_PCT
+            margin_stake = risk_amount / (sl_pct * leverage)
+            if min_stake is not None:
+                margin_stake = max(margin_stake, min_stake)
+            return float(min(margin_stake, max_stake))
+        except Exception as exc:  # noqa: BLE001 - never let sizing plumbing crash the bot
+            logger.error(f"[RISK-SIZE] {pair} fallback to proposed_stake: {exc}")
+            return proposed_stake
 
     def _profit_lock_floor(self, trade: Trade) -> float | None:
         """Highest armed profit-lock rung (margin ROI), or None if unarmed.
