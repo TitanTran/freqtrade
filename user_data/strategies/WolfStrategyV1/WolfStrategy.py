@@ -133,6 +133,19 @@ class WolfStrategy(IStrategy):
     # the +25% target: bear PF 1.46->1.17, profit halved. CONFIRMED: this strategy's
     # short edge REQUIRES riding through rallies; reaction-exits cannot lower DD.
     # The only non-churning DD lever is overall leverage.
+    # REJECTED (2026-07-31, scratch/ab_vwap_atr_exit.py): tried the ATR-normalized
+    # version of the exact idea above (both long AND short), applied on the live
+    # candle instead of waiting for the 4H macro flag. Same churn signature as the
+    # 2026-06-21 fixed-% version, on all 3 windows: fewer deep losers but LOWER
+    # profit factor everywhere, and W2_bull2025 flips a marginal +0.1%/PF1.05 into
+    # -0.6%/PF0.47. CONFIRMED: it isn't the % vs ATR margin that was the problem —
+    # ANY exit that reacts faster than the 4H-confirmed flag cuts trades that would
+    # have recovered. Kept OFF; do not re-attempt without a genuinely different
+    # invalidation signal (not a faster/tighter version of the same reclaim idea).
+    ENABLE_VWAP_ATR_EMERGENCY_EXIT = False
+    EMERGENCY_VWAP_RECLAIM_ATR = 1.0    # ATR beyond VWAP that counts as "structure lost"
+    EMERGENCY_ROI_FLOOR_LONG = -0.075   # margin ROI floor before LONG emergency logic engages
+    EMERGENCY_ROI_FLOOR_SHORT = -0.04   # margin ROI floor before SHORT emergency logic engages
     RSI_1D_LONG_MAX = 80.0
     RSI_4H_LONG_MAX = 75.0
     RSI_1D_SHORT_MIN = 20.0
@@ -222,7 +235,25 @@ class WolfStrategy(IStrategy):
     # loosest veto that still blocks the audit signature — deliberately NOT
     # grid-searched (the 2026 backtest window is exhausted; in-sample runs
     # are sanity checks only). Acceptance criterion: forward/dry-run sample.
-    ENABLE_EXTENSION_VETO = True
+    #
+    # DISABLED 2026-07-31 (deliberate user decision, not a rejection): live
+    # was on pace for ~1-1.6 trades/month on BTC/ETH, so the N=8-10 forward-
+    # validation gate would take 5-8 months. scratch/ab_veto_ablation.py
+    # showed F4 alone gates ~all of that — F1 costs ~0 frequency (and helps
+    # PF), F5 is provably inert in-sample (see NOTE below). Disabling F4
+    # alone (F1+F5 kept ON) matches turning off all three: bear2026 PF
+    # 3.58->2.33, bull2025 PF 1.05->1.19, both still >1, frequency ~3.8-4.2
+    # trades/month (N=8 in ~2 months instead of ~5-8). scratch/
+    # ab_extension_threshold.py confirmed there is no safe middle threshold
+    # (4.0 kills bull PF to 0.61 while fixing bear; noisy, regime-dependent,
+    # not a real dial) — this is a binary choice, not a tunable one.
+    # KNOWN, ACCEPTED COST: cross-referencing scratch/ab_veto_ablation
+    # trades against the signals export, the 4 new deep losers in bear2026
+    # all carry |extension_atr| 4.4-6.9 — i.e. disabling F4 reopens exactly
+    # the >=3.3 ATR audit signature from the 3 historical live losses this
+    # filter was built to block. Accepted in exchange for reaching
+    # statistical read-out speed. Re-evaluate once N=8-10 live trades land.
+    ENABLE_EXTENSION_VETO = False
     EXTENSION_MAX_ATR = 3.0
     # F5 POSITIONING VETO (designed 2026-07-09): don't JOIN a crowded trade.
     # Market makers hunt the crowd's stops, and the only two crowd-positioning
@@ -282,6 +313,27 @@ class WolfStrategy(IStrategy):
     ENABLE_RISK_BASED_SIZING = True
     RISK_PER_TRADE_PCT = 0.005      # 0.5% of equity risked per trade at the ATR stop
 
+    # REJECTED (2026-07-31, scratch/ab_scaled_entry.py): a different lever
+    # than the rejected fast-exit ideas above — instead of trying to CUT a
+    # bad trade faster (proven to churn), take LESS risk on the entry itself.
+    # Only SCALED_ENTRY_INITIAL_FRACTION fires at the trigger candle; the
+    # rest tops up if a closed candle within SCALED_ENTRY_CONFIRM_BARS stays
+    # on the correct side of VWAP and closes further in the trade's favor.
+    # Also failed, on all 3 windows: bear2026 PF 3.58->2.32 with MORE deep
+    # losers (1->2, not fewer), bull2025 PF 1.05->0.14 (near wipeout), OOS2026
+    # flat (1.80->1.84) but paying extra entry fees/slippage for nothing.
+    # Root cause: the confirmation bar is too easy to clear in a trending
+    # market — almost every trade gets topped up to full size within 1
+    # candle anyway, so it never actually discriminates a fast-reversal from
+    # ordinary continuation. THIRD rejected reaction-based risk lever in a
+    # row (with the 2026-06-21 and 2026-07-31 exit-speed ideas above) —
+    # confirms the DD here is structural, not fixable by tuning entry/exit
+    # reaction speed. Kept OFF; do not re-attempt without a genuinely
+    # different mechanism (not faster-exit or smaller-entry).
+    ENABLE_SCALED_ENTRY = False
+    SCALED_ENTRY_INITIAL_FRACTION = 0.5   # fraction of the full risk-sized stake taken at trigger
+    SCALED_ENTRY_CONFIRM_BARS = 2         # add-on must confirm within this many 1H candles
+
     # --- FAST-WIN conditional time-stop (đánh nhanh thắng nhanh) ---------
     # Trade-data finding (2026-06-21): every deep loser bled for DAYS before the
     # wide ATR stop fired — worst -31%/71h, -27%/66h, -26%/126h, one held 173h.
@@ -322,6 +374,10 @@ class WolfStrategy(IStrategy):
     trailing_stop = False
     use_exit_signal = True
     exit_profit_only = False
+    # Always on; adjust_trade_position() itself is a no-op unless
+    # ENABLE_SCALED_ENTRY is True, so this has no effect while the flag is off.
+    position_adjustment_enable = True
+    max_entry_position_adjustment = 1   # exactly one top-up (the scaled-entry add-on)
 
     # Futures Leverage Configuration
     # Longs are the counter-trend regime bet (they bleed in a bear and drive DD);
@@ -563,12 +619,68 @@ class WolfStrategy(IStrategy):
             equity = self.wallets.get_total_stake_amount()
             risk_amount = equity * self.RISK_PER_TRADE_PCT
             margin_stake = risk_amount / (sl_pct * leverage)
+            if self.ENABLE_SCALED_ENTRY:
+                # Only the initial slice fires here; adjust_trade_position()
+                # tops up the rest if the next candle(s) confirm continuation.
+                margin_stake *= self.SCALED_ENTRY_INITIAL_FRACTION
             if min_stake is not None:
                 margin_stake = max(margin_stake, min_stake)
             return float(min(margin_stake, max_stake))
         except Exception as exc:  # noqa: BLE001 - never let sizing plumbing crash the bot
             logger.error(f"[RISK-SIZE] {pair} fallback to proposed_stake: {exc}")
             return proposed_stake
+
+    # ==========================================
+    # SCALED ENTRY: top up the partial initial stake once the setup confirms
+    # ==========================================
+    def adjust_trade_position(self, trade: Trade, current_time: datetime, current_rate: float,
+                               current_profit: float, min_stake: float | None, max_stake: float,
+                               current_entry_rate: float, current_exit_rate: float,
+                               current_entry_profit: float, current_exit_profit: float,
+                               **kwargs) -> float | None:
+        """Add the remaining stake once a closed candle confirms continuation.
+
+        No-op unless ENABLE_SCALED_ENTRY is True. custom_stake_amount() only
+        fired SCALED_ENTRY_INITIAL_FRACTION of the full risk-sized stake at
+        entry; this tops it up to full size, but ONLY if, within
+        SCALED_ENTRY_CONFIRM_BARS candles, a closed candle both (a) stays on
+        the correct side of VWAP (rule #3 applies to the add-on too) and
+        (b) closes further in the trade's favor than the entry price. A setup
+        that stalls or reverses within the confirmation window never gets the
+        second half, capping the loss at the partial size instead of full.
+        """
+        if not self.ENABLE_SCALED_ENTRY or trade.nr_of_successful_entries != 1:
+            return None
+        try:
+            hold_hours = (current_time - trade.open_date_utc).total_seconds() / 3600.0
+            if hold_hours > self.SCALED_ENTRY_CONFIRM_BARS:
+                return None  # confirmation window expired; stay at partial size
+
+            dataframe, _ = self.dp.get_analyzed_dataframe(trade.pair, self.timeframe)
+            if dataframe is None or len(dataframe) == 0:
+                return None
+            last = dataframe.iloc[-1]
+            if last["date"] <= trade.open_date_utc:
+                return None  # no new closed candle since entry yet
+
+            vwap = float(last.get("vwap", current_rate) or current_rate)
+            is_short = trade.trade_direction == "short"
+            if is_short:
+                confirmed = (last["close"] < vwap and last["close"] < trade.open_rate
+                             and last["close"] < last["open"])
+            else:
+                confirmed = (last["close"] > vwap and last["close"] > trade.open_rate
+                             and last["close"] > last["open"])
+            if not confirmed:
+                return None
+
+            add_stake = trade.stake_amount * ((1.0 / self.SCALED_ENTRY_INITIAL_FRACTION) - 1.0)
+            if min_stake is not None:
+                add_stake = max(add_stake, min_stake)
+            return float(min(add_stake, max_stake))
+        except Exception as exc:  # noqa: BLE001 - never let sizing plumbing crash the bot
+            logger.error(f"[SCALED-ENTRY] {trade.pair} top-up skipped: {exc}")
+            return None
 
     def _profit_lock_floor(self, trade: Trade) -> float | None:
         """Highest armed profit-lock rung (margin ROI), or None if unarmed.
@@ -628,9 +740,27 @@ class WolfStrategy(IStrategy):
         volume_ratio = float(last.get("volume_ratio", 1.0) or 1.0)
 
         if trade.trade_direction == "long":
+            # === VWAP-ATR EMERGENCY EXIT (A/B candidate, 2026-07-31) ===
+            # Structure-invalidation exit that reacts on the CURRENT candle
+            # instead of waiting for the 4H macro flag to close its candle.
+            # NOTE: a fixed-%-margin version of this exact idea (short side)
+            # was tested 2026-06-21 and REJECTED — see the NOTE above
+            # RSI_SHORT_MIN: it churned out shorts that would have recovered
+            # to the +25% target (bear PF 1.46->1.17). This ATR-normalized
+            # variant is gated OFF by default; only flip ENABLE_VWAP_ATR_
+            # EMERGENCY_EXIT on for the A/B script, never assume it wins.
+            if self.ENABLE_VWAP_ATR_EMERGENCY_EXIT:
+                vwap = float(last.get("vwap", current_rate) or current_rate)
+                atr_1h = float(last.get("atr", 0.0) or 0.0)
+                if (current_profit < self.EMERGENCY_ROI_FLOOR_LONG and atr_1h > 0
+                        and current_rate < vwap - self.EMERGENCY_VWAP_RECLAIM_ATR * atr_1h):
+                    logger.warning(f"[V9.1] {pair} LONG emergency: VWAP lost by "
+                                    f"{(vwap - current_rate) / atr_1h:.2f} ATR")
+                    return "smc_emergency_exit_vwap_atr"
+
             # === EMERGENCY EXIT ===
             # 4H turned bearish while we're losing: cut immediately (1.5% price move = 7.5% ROI)
-            if current_profit < -0.075 and macro_bear and rsi < 38:
+            if current_profit < self.EMERGENCY_ROI_FLOOR_LONG and macro_bear and rsi < 38:
                 logger.warning(f"[V9.0] {pair} LONG emergency: 4H bearish, RSI={rsi:.0f}")
                 return "smc_emergency_exit"
 
@@ -649,10 +779,20 @@ class WolfStrategy(IStrategy):
                 return "long_4h_flip"
 
         if trade.trade_direction == "short":
+            # === VWAP-ATR EMERGENCY EXIT (A/B candidate, see LONG side note) ===
+            if self.ENABLE_VWAP_ATR_EMERGENCY_EXIT:
+                vwap = float(last.get("vwap", current_rate) or current_rate)
+                atr_1h = float(last.get("atr", 0.0) or 0.0)
+                if (current_profit < self.EMERGENCY_ROI_FLOOR_SHORT and atr_1h > 0
+                        and current_rate > vwap + self.EMERGENCY_VWAP_RECLAIM_ATR * atr_1h):
+                    logger.warning(f"[V9.1] {pair} SHORT emergency: VWAP reclaimed by "
+                                    f"{(current_rate - vwap) / atr_1h:.2f} ATR")
+                    return "smc_emergency_exit_vwap_atr"
+
             # Emergency: 4H turned bullish while losing — cut FAST, don't wait
             # for a deep loss + extreme RSI (that confirmation arrives too late
             # and turned -7% shorts into -13/-18% in the June 2026 reversal).
-            if current_profit < -0.04 and macro_bull:
+            if current_profit < self.EMERGENCY_ROI_FLOOR_SHORT and macro_bull:
                 logger.warning(f"[V9.0] {pair} SHORT emergency: 4H bullish, RSI={rsi:.0f}")
                 return "smc_emergency_exit"
 
