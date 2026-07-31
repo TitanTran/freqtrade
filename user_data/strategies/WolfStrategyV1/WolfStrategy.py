@@ -186,6 +186,14 @@ class WolfStrategy(IStrategy):
     # = great bull capture (+13%) but bleeds in non-bull (FULL -6%); the confirmed
     # gate is the robust choice on predominantly non-bull data.
     LONG_USE_CONFIRMED = True       # persistence-confirmed regime kills bear counter-trend longs (instantaneous bloated DD to 33%)
+    # SHORT side mirror of LONG_USE_CONFIRMED, added 2026-07-31: with F1/F4/F5
+    # off, shark_short/breakdown_short/retest_short all fired on instantaneous
+    # regime_down (never persistence-checked — see "Shorts are unchanged"
+    # above). Diagnosed cause of the bull2025 all-filters-off loss: 3 separate
+    # BTC shorts (2025-08-20/26/31) all lost shorting brief 4H dips inside an
+    # ongoing uptrend. A/B candidate: gate shorts on regime_down_confirmed
+    # instead, same persistence window as longs (REGIME_PERSIST_BARS).
+    SHORT_USE_CONFIRMED = True
     # LONG earlier profit-taking (bank the move before the market reverses)
     LONG_TP_ROI = 0.20              # ride the bull (~4% price at x5); was 0.12, too tight to capture uptrends
     LONG_TP_EARLY_ROI = 0.06        # early exit floor when overbought
@@ -204,7 +212,12 @@ class WolfStrategy(IStrategy):
     # deep-losing shorts had a bull sweep vs 44% of the healthy ones, so it
     # blocks more winners than losers. Long side only.
     # A/B validated: bear-2026 PF 1.34->1.40, bull-2025 -21%->-13%, OOS ~flat.
-    ENABLE_LONG_SWEEP_VETO = True
+    #
+    # DISABLED 2026-07-31 (deliberate user decision, part of the same F1+F4+F5
+    # frequency push as the F4 NOTE below): ablation showed F1 alone costs
+    # ~0 frequency, so this specific disable barely matters either way — kept
+    # off for consistency with F4/F5 in this "all vetoes off" campaign phase.
+    ENABLE_LONG_SWEEP_VETO = False
     # F2 SHORT climax-volume veto: REJECTED by full A/B (2026-07-02), kept
     # OFF. The trade-level snapshot looked great (deep-losing shorts entered
     # on climactic vol-2x bars, blocked set summed to a net loss) but in the
@@ -279,10 +292,16 @@ class WolfStrategy(IStrategy):
     #   flat drift as direction.
     # Fail-open: missing/unavailable data resolves to NEUTRAL (no veto).
     # Acceptance criterion: forward/dry-run sample, NOT in-sample backtests.
-    ENABLE_FUNDING_VETO = True
+    #
+    # DISABLED 2026-07-31: confirmed via scratch/ab_veto_ablation.py to be
+    # completely inert in-sample (0 effect on trade count/PF in either
+    # bear2026 or bull2025) — costs nothing to disable, no upside to keep on
+    # while chasing frequency. Free to re-enable any time, it changes nothing
+    # until the funding/OI thresholds actually get crossed.
+    ENABLE_FUNDING_VETO = False
     FUNDING_VETO_LONG_MAX = 0.0002      # veto longs at/above (crowd long)
     FUNDING_VETO_SHORT_MIN = -0.0001    # veto shorts at/below (crowd short)
-    ENABLE_OI_VETO = True
+    ENABLE_OI_VETO = False
     OI_LOOKBACK_BARS = 24               # 24 x 1h = 1 day of OI build-up
     OI_SURGE_PCT = 0.10                 # +10% OI in a day = crowded (majors)
     OI_PRICE_DEADBAND_PCT = 0.005       # <0.5% price move = no clear crowd side
@@ -1324,10 +1343,13 @@ class WolfStrategy(IStrategy):
             (dataframe["rsi_4h"].fillna(50) > self.RSI_4H_SHORT_MIN)    # not shorting the 4H bottom
         )
 
+        regime_down_gate = (
+            dataframe["regime_down_confirmed"] if self.SHORT_USE_CONFIRMED else dataframe["regime_down"]
+        )
         shark_short = (
             has_volume &
             short_bias &
-            (dataframe["regime_down"]) &          # REGIME GATE: only a clean down-regime
+            regime_down_gate &                    # REGIME GATE (sustained or instantaneous)
             (dataframe["below_vwap"]) &           # VWAP RULE: never short above VWAP
             (dataframe["close"] < dataframe["ema_200"]) &        # structural downtrend on 1H
             (dataframe["rsi"] > self.RSI_SHORT_MIN) &            # need a bounce, not chasing
@@ -1345,7 +1367,7 @@ class WolfStrategy(IStrategy):
         breakdown_short = (
             has_volume &
             (dataframe["side_short_ok"]) &                       # HTF structure bearish (4h/1d per flag)
-            (dataframe["regime_down"]) &                         # confirmed down-regime (kill noise)
+            regime_down_gate &                                   # down-regime (sustained or instantaneous)
             (dataframe["below_vwap"]) &                          # VWAP RULE
             (dataframe["close"] < dataframe["ema_200"]) &        # 1H downtrend
             (dataframe["close"] < dataframe["recent_low"]) &     # NEW LOW = breakdown
@@ -1403,7 +1425,7 @@ class WolfStrategy(IStrategy):
             (dataframe["close"] < retest_level) &                # rejected: closed back below the level
             (dataframe["close"] < dataframe["open"]) &           # bearish rejection candle
             (dataframe["side_short_ok"]) &                       # HTF gates re-checked at trigger
-            (dataframe["regime_down"]) &
+            regime_down_gate &
             (dataframe["below_vwap"])
         )
         if self.ENABLE_EXTENSION_VETO:
