@@ -70,7 +70,11 @@ class WolfStrategy(IStrategy):
     # / -0.76% fwd96h vs ETH 59% / -1.98%); fat-tailed counter-bounces hit the
     # wide ATR stop, dragging its trade win-rate to 31% and net P&L negative.
     # BTC/ETH-only lifts Jan-Jun +75.5%->+87.5% (PF 1.61->2.16, DD 22.8%->17.7%).
-    ALLOWED_PAIRS = {"BTC/USDT:USDT", "ETH/USDT:USDT"}
+    # RE-ADDED 2026-07-31 (user request) for a re-test under the new entry/exit
+    # logic (SHORT_USE_CONFIRMED, F1/F4/F5 off) — that 2026-06-19 removal was
+    # evaluated against the OLD config, not this one. Re-evaluate the decision
+    # from the fresh backtest, don't assume either outcome.
+    ALLOWED_PAIRS = {"BTC/USDT:USDT", "ETH/USDT:USDT", "BNB/USDT:USDT"}
 
     # ------------------------------------------------------------------
     # HUMAN-IN-THE-LOOP APPROVAL
