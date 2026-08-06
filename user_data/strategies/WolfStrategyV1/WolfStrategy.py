@@ -172,6 +172,87 @@ class WolfStrategy(IStrategy):
     STRUCT_FAST_EMA_PERIOD = 25
     STRUCT_SLOW_EMA_PERIOD = 99
 
+    # --- ADAPTIVE THRESHOLDS (percentile-based, market-driven) -----------
+    # A static ADX floor doesn't adapt when a pair's baseline trendiness
+    # regime shifts for weeks (e.g. 2026-08's BTC/ETH/BNB all sitting at
+    # 4H ADX 15-18 well under the old fixed 25 floor). The fix must NOT be
+    # "loosen because the bot hasn't traded" — that reacts to the bot's own
+    # idleness and would loosen the filter exactly when the market is
+    # weakest (chop), defeating the point of a regime filter. Instead each
+    # adaptive threshold tracks a rolling PERCENTILE of the underlying
+    # indicator's OWN recent history (does this pair's structure look more
+    # or less trending than its recent normal?), clamped to an explicit
+    # [lo, hi] band so it can never drift outside a sane range. No lookahead:
+    # rolling windows only look backward from each closed candle. Warmup
+    # (before ADAPTIVE_MIN_PERIODS_4H bars exist) falls back to the static
+    # value below instead of producing a noisy early estimate.
+    ENABLE_ADAPTIVE_THRESHOLDS = True
+    # 2026-08-05: 90-day window tested too slow in practice — a hot April/May
+    # regime kept the ADX floor pinned at the HI bound for weeks after the
+    # market had already gone quiet (verified: floor was still 28-30 on
+    # 2026-08-05 while live ADX had been 15-18 for 5 days). Shortened to 30
+    # days so the floor actually tracks the CURRENT regime instead of a
+    # stale one; short enough to respond within days, long enough to not
+    # just be "did we trade in the last 3 days" in disguise.
+    # 2026-08-06: still too slow — even at 30d/65th-pctl the floor sat at
+    # 24-25 while live ADX(4h) had been 15-20 for BTC/ETH for 2 weeks
+    # straight (0 trades). Tried 14 days (scratch/ab_adaptive_floor_tuning.py):
+    # unblocks entries but flips W1_bear2026 PF to 0.92 (below breakeven) in
+    # EVERY (pctl, LO) combination tested at that window length — 14d is too
+    # reactive, it starts admitting entries during the exact chop stretches
+    # the regime filter exists to reject. 21 days is the shortest window
+    # that keeps PF >= 1.0 in both canonical windows
+    # (scratch/ab_adaptive_floor_sweep.py) while still responding within ~3
+    # weeks instead of the old 30-90 day lag.
+    ADAPTIVE_WINDOW_BARS_4H = 126    # ~21 days of 4H candles (21 * 6)
+    ADAPTIVE_MIN_PERIODS_4H = 63     # ~10.5 days minimum before adapting kicks in
+    ADAPTIVE_WINDOW_BARS_1H = 1440   # ~60 days of 1H candles
+    ADAPTIVE_MIN_PERIODS_1H = 480    # ~20 days minimum before adapting kicks in
+
+    # ADX regime floor: require ADX(4H) to sit in the top (100-pctl)% of its
+    # OWN trailing range, not an absolute constant. In a chronically choppy
+    # era this pulls the floor down toward ADX_REGIME_MIN_LO (still trending
+    # for THIS market, even if not by 2025's standard); in a genuinely
+    # volatile trending era it pulls up toward ADX_REGIME_MIN_HI, keeping the
+    # filter selective instead of admitting everything.
+    # 2026-08-06: target percentile pulled from 65th to 50th, and the LO
+    # clamp from 20 to 17. Starting point calibrated on the ADX(4h)
+    # distribution itself (BTC/ETH/BNB, 2025-01..2026-08,
+    # scratch/adx_distribution_check.py), NOT on backtest P&L: full-history
+    # p45-50 sits at ~23-25 for all three pairs (was chasing p65 ~29-30,
+    # well above "typical" trendiness for this market). Final pctl/LO/window
+    # combination then confirmed via scratch/ab_adaptive_floor_sweep.py:
+    # W1_bear2026 PF 1.02->1.06, W2_bull2025 PF 1.89->2.73, trades/mo
+    # 3.6->4.0 (bear) and 4.2->5.0 (bull) vs the static-25 baseline still
+    # live on the VPS at time of writing. HI unchanged — full-history p65-75
+    # is ~29-34, so 30 still caps the filter at "genuinely trending".
+    ADX_REGIME_TARGET_PCTL = 50.0
+    ADX_REGIME_MIN_LO = 17.0
+    ADX_REGIME_MIN_HI = 30.0
+
+    # Volume-ratio participation floors: volume_ratio is ALREADY relative
+    # (volume / 40-bar mean), but the "how relative is enough" bar can still
+    # drift structurally over months (exchange-wide activity regimes). Same
+    # percentile-of-own-history mechanism, at 1H resolution.
+    LONG_VOL_RATIO_TARGET_PCTL = 55.0
+    LONG_VOL_RATIO_MIN_LO = 0.8
+    LONG_VOL_RATIO_MIN_HI = 1.5
+    SHORT_VOL_RATIO_TARGET_PCTL = 55.0
+    SHORT_VOL_RATIO_MIN_LO = 1.0
+    SHORT_VOL_RATIO_MIN_HI = 1.8
+
+    # NOTE: RSI band thresholds (RSI_LONG_MAX, RSI_SHORT_MIN, ...) and
+    # EXTENSION_MAX_ATR are deliberately NOT made adaptive:
+    # - RSI is already a bounded 0-100 oscillator; its own rolling
+    #   percentile barely moves and the current bands (62->72 for
+    #   RSI_LONG_MAX) were already hand-validated per-regime via A/B — an
+    #   auto-adaptive band would silently drift away from that validated
+    #   value without a comparable validation pass.
+    # - EXTENSION_MAX_ATR (F4) is currently disabled and scratch/
+    #   ab_extension_threshold.py already found NO safe middle threshold
+    #   (see F4 note above) — it's documented as a binary choice, not a
+    #   tunable dial, so making it "adaptive" would contradict that finding.
+
     # --- LONG calibration -----------------------------------------------
     # Counter-intuitive finding (2026-06-18): TIGHTENING the long entry made the
     # bot blind to bull markets (0 longs taken during the 2025-05..09 +40%/mo
@@ -309,6 +390,28 @@ class WolfStrategy(IStrategy):
     OI_LOOKBACK_BARS = 24               # 24 x 1h = 1 day of OI build-up
     OI_SURGE_PCT = 0.10                 # +10% OI in a day = crowded (majors)
     OI_PRICE_DEADBAND_PCT = 0.005       # <0.5% price move = no clear crowd side
+
+    # --- WYCKOFF SPRING/TEST EXPERIMENTAL ENTRY (2026-08-05 research) ------
+    # User observation: markets often "probe" a level several times
+    # (accumulation/distribution) before the real breakout leg. Naive
+    # operationalization (just COUNT prior sweeps in a lookback window)
+    # showed no forward-return edge (scratch analysis, 1208 raw BOS events,
+    # BTC/ETH/BNB 2025-02..2026-08). Stricter Wyckoff-style version — each
+    # successive sweep must hold at a RISING low (bull) / FALLING high
+    # (bear) vs the previous one, i.e. a genuine spring-then-test staircase,
+    # not just repeated noise — showed staircase>=3 vs staircase==1 24h
+    # forward returns differ at p=0.026. NOT validated: this is the SECOND
+    # definition tried on the same exhausted window (multiple-comparisons
+    # risk), the strongest bucket (staircase=5) rests on only 13 samples,
+    # and the p-value is from idealized point-forward returns, not a real
+    # trade simulation. Gated behind its own flag, OFF by default, for
+    # isolated A/B backtesting only — do NOT enable in the live/validated
+    # config without a proper forward-validation pass like every other
+    # filter in this file.
+    ENABLE_WYCKOFF_ENTRY = False
+    WYCKOFF_MIN_STAIRCASE = 3
+    WYCKOFF_STAIRCASE_LOOKBACK_BARS = 120   # 5 days of 1H bars between qualifying tests
+    WYCKOFF_STAIRCASE_TOL_ATR = 0.3         # how far a test may undercut/overshoot and still "hold"
 
     # --- Dynamic ATR stoploss (CLAUDE.md #4) -----------------------------
     # Replaces the old static 5-7% price stop (~7-10x ATR, far too wide) with a
@@ -857,6 +960,89 @@ class WolfStrategy(IStrategy):
         )
 
     # ==========================================
+    # ENTRY DIAGNOSTIC — binding-constraint gate funnel
+    # ==========================================
+    @staticmethod
+    def _first_blocking_gate(gates: list) -> str:
+        """Walk an ordered (name, passed) gate list — same order as the
+        actual entry conditions — and return the name of the first gate
+        that fails on the last closed candle: the real binding constraint,
+        instead of a wall of booleans. Returns "READY" if every gate
+        passes. Read-only: does not affect entry signals, only what gets
+        logged (mirrors scratch/funnel_now.py's gate ordering).
+        """
+        for name, passed in gates:
+            if not bool(passed):
+                return name
+        return "READY"
+
+    # ==========================================
+    # ADAPTIVE THRESHOLDS (percentile-based, market-driven)
+    # ==========================================
+    @staticmethod
+    def _adaptive_percentile_threshold(
+        series: pd.Series,
+        window: int,
+        min_periods: int,
+        target_pctl: float,
+        lo: float,
+        hi: float,
+        static_fallback: float,
+    ) -> pd.Series:
+        """Rolling percentile of `series`'s own trailing history, clamped to
+        [lo, hi]. Backward-looking only (pandas rolling never sees future
+        rows), so this cannot leak information. Falls back to
+        `static_fallback` wherever the window hasn't warmed up yet
+        (min_periods not reached) instead of a noisy early estimate.
+        """
+        rolling_pctl = series.rolling(window, min_periods=min_periods).quantile(
+            target_pctl / 100.0
+        )
+        return rolling_pctl.clip(lower=lo, upper=hi).fillna(static_fallback)
+
+    @staticmethod
+    def _staircase_count(
+        sweep_flags: pd.Series,
+        level: pd.Series,
+        atr: pd.Series,
+        lookback_bars: int,
+        tol_atr: float,
+        rising: bool,
+    ) -> pd.Series:
+        """Trailing run-length of sweep "tests" that each hold at a rising
+        (or falling) price level vs the previous test — the Wyckoff
+        spring-then-test staircase. Backward-looking state machine (no
+        lookahead): at each bar, only sweep events at or before that bar can
+        extend or reset the run. The displayed count decays to 0 once more
+        than `lookback_bars` have passed since the last qualifying sweep.
+        """
+        n = len(sweep_flags)
+        out = np.zeros(n, dtype=int)
+        sweep_arr = sweep_flags.to_numpy()
+        level_arr = level.to_numpy()
+        atr_arr = atr.to_numpy()
+
+        run = 0
+        last_level = np.nan
+        last_bar = -10**9
+        bars_since = 10**9
+        for i in range(n):
+            if sweep_arr[i]:
+                tol = tol_atr * atr_arr[i] if not np.isnan(atr_arr[i]) else 0.0
+                if run == 0 or (i - last_bar) > lookback_bars:
+                    run = 1
+                else:
+                    holds = (level_arr[i] >= last_level - tol) if rising else (level_arr[i] <= last_level + tol)
+                    run = run + 1 if holds else 1
+                last_level = level_arr[i]
+                last_bar = i
+                bars_since = 0
+            else:
+                bars_since += 1
+            out[i] = run if bars_since <= lookback_bars else 0
+        return pd.Series(out, index=sweep_flags.index)
+
+    # ==========================================
     # F5 POSITIONING DATA (funding rate + open interest)
     # ==========================================
     def _merge_positioning(self, dataframe: DataFrame, pair: str) -> DataFrame:
@@ -971,6 +1157,13 @@ class WolfStrategy(IStrategy):
         inf_4h["rsi"]     = ta.RSI(inf_4h, timeperiod=14)   # -> rsi_4h after merge
         inf_4h["adx"]     = ta.ADX(inf_4h, timeperiod=14)   # -> adx_4h after merge
         inf_4h["atr"]     = ta.ATR(inf_4h, timeperiod=14)   # -> atr_4h after merge
+        if self.ENABLE_ADAPTIVE_THRESHOLDS:
+            # -> adx_regime_min_adaptive_4h after merge
+            inf_4h["adx_regime_min_adaptive"] = self._adaptive_percentile_threshold(
+                inf_4h["adx"], self.ADAPTIVE_WINDOW_BARS_4H, self.ADAPTIVE_MIN_PERIODS_4H,
+                self.ADX_REGIME_TARGET_PCTL, self.ADX_REGIME_MIN_LO, self.ADX_REGIME_MIN_HI,
+                self.ADX_REGIME_MIN,
+            )
 
         # 4H Market Bias
         inf_4h["macro_bullish"] = (
@@ -1071,6 +1264,17 @@ class WolfStrategy(IStrategy):
         dataframe["volume_mean"]  = dataframe["volume"].rolling(40, min_periods=1).mean()
         dataframe["volume_ratio"] = dataframe["volume"] / dataframe["volume_mean"].replace(0, 1)
         dataframe["volume_surge"] = dataframe["volume_ratio"] > 2.0  # 2x average = SM activity
+        if self.ENABLE_ADAPTIVE_THRESHOLDS:
+            dataframe["long_vol_ratio_min_adaptive"] = self._adaptive_percentile_threshold(
+                dataframe["volume_ratio"], self.ADAPTIVE_WINDOW_BARS_1H, self.ADAPTIVE_MIN_PERIODS_1H,
+                self.LONG_VOL_RATIO_TARGET_PCTL, self.LONG_VOL_RATIO_MIN_LO, self.LONG_VOL_RATIO_MIN_HI,
+                self.LONG_VOL_RATIO_MIN,
+            )
+            dataframe["short_vol_ratio_min_adaptive"] = self._adaptive_percentile_threshold(
+                dataframe["volume_ratio"], self.ADAPTIVE_WINDOW_BARS_1H, self.ADAPTIVE_MIN_PERIODS_1H,
+                self.SHORT_VOL_RATIO_TARGET_PCTL, self.SHORT_VOL_RATIO_MIN_LO, self.SHORT_VOL_RATIO_MIN_HI,
+                self.VOL_RATIO_MIN,
+            )
 
         # ------------------------------------------------------------------
         # VWAP — Institutional referee (CLAUDE.md Rule #3).
@@ -1151,6 +1355,24 @@ class WolfStrategy(IStrategy):
         )
 
         # ------------------------------------------------------------------
+        # 5b. WYCKOFF STAIRCASE (2026-08-05 research, gated OFF by default) —
+        # counts the trailing run of liquidity-sweep "tests" that each hold
+        # at a rising low (bull) / falling high (bear) vs the previous test,
+        # within WYCKOFF_STAIRCASE_LOOKBACK_BARS of each other. A staircase
+        # of several holding tests before a BOS is the classic Wyckoff
+        # spring-then-test accumulation/distribution signature. See
+        # ENABLE_WYCKOFF_ENTRY below for validation status (NOT confirmed).
+        # ------------------------------------------------------------------
+        dataframe["bull_staircase"] = self._staircase_count(
+            dataframe["bull_sweep"], dataframe["low"], dataframe["atr"],
+            self.WYCKOFF_STAIRCASE_LOOKBACK_BARS, self.WYCKOFF_STAIRCASE_TOL_ATR, rising=True,
+        )
+        dataframe["bear_staircase"] = self._staircase_count(
+            dataframe["bear_sweep"], dataframe["high"], dataframe["atr"],
+            self.WYCKOFF_STAIRCASE_LOOKBACK_BARS, self.WYCKOFF_STAIRCASE_TOL_ATR, rising=False,
+        )
+
+        # ------------------------------------------------------------------
         # 6. CHANGE OF CHARACTER (CHoCH) — Early Reversal Signal
         # ------------------------------------------------------------------
         prev_high_5 = dataframe["high"].rolling(5, min_periods=1).max().shift(2)
@@ -1193,7 +1415,11 @@ class WolfStrategy(IStrategy):
         struct_dn = (ema_fast_4h_col < ema_slow_4h_col) & (dataframe["close"] < ema_fast_4h_col)
         slope_up  = ema_slow_4h_col > ema_slow_4h_col.shift(self.REGIME_SLOPE_BARS)
         slope_dn  = ema_slow_4h_col < ema_slow_4h_col.shift(self.REGIME_SLOPE_BARS)
-        trending  = adx_4h_col.fillna(0) > self.ADX_REGIME_MIN
+        if self.ENABLE_ADAPTIVE_THRESHOLDS and "adx_regime_min_adaptive_4h" in dataframe.columns:
+            adx_regime_min = dataframe["adx_regime_min_adaptive_4h"]
+        else:
+            adx_regime_min = self.ADX_REGIME_MIN
+        trending  = adx_4h_col.fillna(0) > adx_regime_min
 
         dataframe["regime_up"]   = (struct_up & slope_up & (plus_di > minus_di) & trending).fillna(False)
         dataframe["regime_down"] = (struct_dn & slope_dn & (minus_di > plus_di) & trending).fillna(False)
@@ -1272,15 +1498,88 @@ class WolfStrategy(IStrategy):
         # X-RAY LOGGING
         # ------------------------------------------------------------------
         last = dataframe.iloc[-1]
+
+        # ------------------------------------------------------------------
+        # BINDING-CONSTRAINT DIAGNOSTIC — same gate order as shark_long /
+        # shark_short in populate_entry_trend, evaluated only on the last
+        # closed candle so the log answers "why didn't it enter THIS hour".
+        # Read-only: mirrors the real conditions, does not change them.
+        # ------------------------------------------------------------------
+        long_vol_min = last.get("long_vol_ratio_min_adaptive", self.LONG_VOL_RATIO_MIN)
+        short_vol_min = last.get("short_vol_ratio_min_adaptive", self.VOL_RATIO_MIN)
+        regime_up_gate_val = last.get("regime_up_confirmed") if self.LONG_USE_CONFIRMED else last.get("regime_up")
+        regime_down_gate_val = last.get("regime_down_confirmed") if self.SHORT_USE_CONFIRMED else last.get("regime_down")
+        rsi_1d_val = last.get("rsi_1d", 50.0)
+        rsi_1d_val = 50.0 if pd.isna(rsi_1d_val) else rsi_1d_val
+        rsi_4h_val = last.get("rsi_4h", 50.0)
+        rsi_4h_val = 50.0 if pd.isna(rsi_4h_val) else rsi_4h_val
+        macd_prev = dataframe["macdhist"].iloc[-2] if len(dataframe) > 1 else float("nan")
+
+        long_gates = [
+            ("trend_bullish_1d", last.get("trend_bullish_1d", False)),
+            ("macro_bullish_4h", last.get("macro_bullish_4h", False)),
+            ("rsi_1d_htf", rsi_1d_val < self.RSI_1D_LONG_MAX),
+            ("rsi_4h_htf", rsi_4h_val < self.RSI_4H_LONG_MAX),
+            ("regime_up_gate", bool(regime_up_gate_val)),
+            ("above_vwap", last.get("above_vwap", False)),
+            ("rsi_pullback", last.get("rsi", 0.0) < self.RSI_LONG_MAX),
+            ("rsi_not_dip", last.get("rsi", 0.0) > self.LONG_RSI_MIN),
+            ("adx_1h", last.get("adx", 0.0) > self.LONG_ADX_MIN),
+            ("volume_ratio", last.get("volume_ratio", 0.0) > long_vol_min),
+            ("macd_rising", last.get("macdhist", 0.0) > macd_prev),
+        ]
+        if self.LONG_REQUIRE_SWEEP:
+            long_gates.append(("bull_sweep_present",
+                                bool(last.get("bull_sweep_recent", False)) or bool(last.get("bull_sweep", False))))
+        if self.ENABLE_LONG_SWEEP_VETO:
+            long_gates.append(("f1_no_bear_sweep_4h", not bool(last.get("bear_sweep_4h", False))))
+        if self.ENABLE_EXTENSION_VETO:
+            long_gates.append(("f4_not_extended", last.get("extension_atr", 0.0) <= self.EXTENSION_MAX_ATR))
+        if self.ENABLE_FUNDING_VETO:
+            long_gates.append(("f5_not_funding_crowded", not bool(last.get("funding_crowded_long", False))))
+        if self.ENABLE_OI_VETO:
+            long_gates.append(("f5_not_oi_crowded", not bool(last.get("oi_crowded_long", False))))
+        if self.MACRO_SIDE_SWITCH:
+            long_gates.append(("side_long_ok", last.get("side_long_ok", False)))
+
+        short_gates = [
+            ("trend_bearish_1d", last.get("trend_bearish_1d", False)),
+            ("macro_bearish_4h", last.get("macro_bearish_4h", False)),
+            ("rsi_1d_htf", rsi_1d_val > self.RSI_1D_SHORT_MIN),
+            ("rsi_4h_htf", rsi_4h_val > self.RSI_4H_SHORT_MIN),
+            ("regime_down_gate", bool(regime_down_gate_val)),
+            ("below_vwap", last.get("below_vwap", False)),
+            ("below_ema200", last.get("close", 0.0) < last.get("ema_200", float("inf"))),
+            ("rsi_bounce", last.get("rsi", 100.0) > self.RSI_SHORT_MIN),
+            ("volume_ratio", last.get("volume_ratio", 0.0) > short_vol_min),
+            ("macd_falling", last.get("macdhist", 0.0) < macd_prev),
+        ]
+        if self.ENABLE_SHORT_CLIMAX_VETO:
+            short_gates.append(("f2_not_climax", last.get("volume_ratio", 0.0) <= self.SHORT_VOL_RATIO_MAX))
+        if self.ENABLE_EXTENSION_VETO:
+            short_gates.append(("f4_not_extended", last.get("extension_atr", 0.0) >= -self.EXTENSION_MAX_ATR))
+        if self.ENABLE_FUNDING_VETO:
+            short_gates.append(("f5_not_funding_crowded", not bool(last.get("funding_crowded_short", False))))
+        if self.ENABLE_OI_VETO:
+            short_gates.append(("f5_not_oi_crowded", not bool(last.get("oi_crowded_short", False))))
+        if self.MACRO_SIDE_SWITCH:
+            short_gates.append(("side_short_ok", last.get("side_short_ok", False)))
+
+        long_block = self._first_blocking_gate(long_gates) if self.ENABLE_LONG else "disabled"
+        short_block = self._first_blocking_gate(short_gates) if self.ENABLE_SHORT else "disabled"
+
         logger.warning(
             f"[V7 SMC] {metadata['pair']} | "
             f"4H: {'BULL' if last.get('macro_bullish_4h') else 'BEAR' if last.get('macro_bearish_4h') else 'NEUT'} | "
             f"Sweep15m: {'BULL' if last.get('bull_sweep_recent') else 'BEAR' if last.get('bear_sweep_recent') else '-'} | "
             f"BOS: {'BULL' if last.get('bos_bullish') else 'BEAR' if last.get('bos_bearish') else '-'} | "
-            f"RSI={last['rsi']:.0f} ADX={last['adx']:.0f} Vol={last['volume_ratio']:.1f}x | "
+            f"RSI={last['rsi']:.0f} ADX(4h)={last.get('adx_4h', float('nan')):.0f}"
+            f"/floor={last.get('adx_regime_min_adaptive_4h', self.ADX_REGIME_MIN):.0f} "
+            f"Vol={last['volume_ratio']:.1f}x | "
             f"Fund={last.get('funding_rate', 0.0) * 100:.4f}% "
             f"OI24h={last.get('oi_change_pct', 0.0) * 100:+.1f}% "
-            f"Crowd: {'LONG' if last.get('oi_crowded_long') or last.get('funding_crowded_long') else 'SHORT' if last.get('oi_crowded_short') or last.get('funding_crowded_short') else '-'}"
+            f"Crowd: {'LONG' if last.get('oi_crowded_long') or last.get('funding_crowded_long') else 'SHORT' if last.get('oi_crowded_short') or last.get('funding_crowded_short') else '-'} | "
+            f"LongGate={long_block} ShortGate={short_block}"
         )
 
         return dataframe
@@ -1301,6 +1600,13 @@ class WolfStrategy(IStrategy):
         dataframe["enter_short"] = 0
 
         has_volume = dataframe["volume"] > 0
+
+        if self.ENABLE_ADAPTIVE_THRESHOLDS and "long_vol_ratio_min_adaptive" in dataframe.columns:
+            long_vol_ratio_min = dataframe["long_vol_ratio_min_adaptive"]
+            short_vol_ratio_min = dataframe["short_vol_ratio_min_adaptive"]
+        else:
+            long_vol_ratio_min = self.LONG_VOL_RATIO_MIN
+            short_vol_ratio_min = self.VOL_RATIO_MIN
 
         # ==========================================
         # LONG ENTRIES (SHARK HUNTING)
@@ -1325,7 +1631,7 @@ class WolfStrategy(IStrategy):
             (dataframe["rsi"] < self.RSI_LONG_MAX) &              # need a pullback, not FOMO
             (dataframe["rsi"] > self.LONG_RSI_MIN) &              # but not a deep reversal dip
             (dataframe["adx"] > self.LONG_ADX_MIN) &              # real 1H trend strength
-            (dataframe["volume_ratio"] > self.LONG_VOL_RATIO_MIN) &  # stronger volume proof
+            (dataframe["volume_ratio"] > long_vol_ratio_min) &    # stronger volume proof (adaptive floor)
             (dataframe["macdhist"] > dataframe["macdhist"].shift(1))  # momentum turning up
         )
         if self.LONG_REQUIRE_SWEEP:
@@ -1357,7 +1663,7 @@ class WolfStrategy(IStrategy):
             (dataframe["below_vwap"]) &           # VWAP RULE: never short above VWAP
             (dataframe["close"] < dataframe["ema_200"]) &        # structural downtrend on 1H
             (dataframe["rsi"] > self.RSI_SHORT_MIN) &            # need a bounce, not chasing
-            (dataframe["volume_ratio"] > self.VOL_RATIO_MIN) &   # above-average participation
+            (dataframe["volume_ratio"] > short_vol_ratio_min) &   # above-average participation (adaptive floor)
             (dataframe["macdhist"] < dataframe["macdhist"].shift(1))  # momentum turning down
         )
 
@@ -1376,7 +1682,7 @@ class WolfStrategy(IStrategy):
             (dataframe["close"] < dataframe["ema_200"]) &        # 1H downtrend
             (dataframe["close"] < dataframe["recent_low"]) &     # NEW LOW = breakdown
             (dataframe["close"] < dataframe["open"]) &           # bearish candle
-            (dataframe["volume_ratio"] > self.VOL_RATIO_MIN) &   # participation
+            (dataframe["volume_ratio"] > short_vol_ratio_min) &   # participation (adaptive floor)
             (dataframe["macdhist"] < 0) &                        # momentum already down
             (dataframe["rsi"] > self.BREAKDOWN_RSI_MIN)          # not the exhausted bottom
         )
@@ -1444,6 +1750,28 @@ class WolfStrategy(IStrategy):
             shark_long  &= dataframe["side_long_ok"]
             shark_short &= dataframe["side_short_ok"]
 
+        # ==========================================
+        # WYCKOFF SPRING/TEST (experimental, see ENABLE_WYCKOFF_ENTRY above
+        # for validation status) — a break of structure preceded by a
+        # staircase of holding tests, independent of the ADX regime gate.
+        # VWAP rule is still mandatory (CLAUDE.md #3, no exceptions).
+        # ==========================================
+        wyckoff_long = (
+            has_volume &
+            dataframe["bos_bullish"] &
+            (dataframe["bull_staircase"] >= self.WYCKOFF_MIN_STAIRCASE) &
+            dataframe["above_vwap"]
+        )
+        wyckoff_short = (
+            has_volume &
+            dataframe["bos_bearish"] &
+            (dataframe["bear_staircase"] >= self.WYCKOFF_MIN_STAIRCASE) &
+            dataframe["below_vwap"]
+        )
+        if self.MACRO_SIDE_SWITCH:
+            wyckoff_long  &= dataframe["side_long_ok"]
+            wyckoff_short &= dataframe["side_short_ok"]
+
         # = ::::: ASSIGN ENTRIES ::::: =
         if self.ENABLE_LONG:
             dataframe.loc[shark_long,  ["enter_long",  "enter_tag"]] = (1, "shark_long_1h")
@@ -1454,5 +1782,8 @@ class WolfStrategy(IStrategy):
                 dataframe.loc[breakdown_short, ["enter_short", "enter_tag"]] = (1, "breakdown_short_1h")
         if self.ENABLE_SHORT:
             dataframe.loc[shark_short, ["enter_short", "enter_tag"]] = (1, "shark_short_1h")
+        if self.ENABLE_WYCKOFF_ENTRY:
+            dataframe.loc[wyckoff_long,  ["enter_long",  "enter_tag"]] = (1, "wyckoff_spring_long_1h")
+            dataframe.loc[wyckoff_short, ["enter_short", "enter_tag"]] = (1, "wyckoff_spring_short_1h")
 
         return dataframe
