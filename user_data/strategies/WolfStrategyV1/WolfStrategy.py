@@ -963,6 +963,14 @@ class WolfStrategy(IStrategy):
     # ENTRY DIAGNOSTIC — binding-constraint gate funnel
     # ==========================================
     @staticmethod
+    def _format_gate_checklist(gates: list) -> str:
+        """Render every gate's pass/fail on the last closed candle (not just
+        the first blocking one) — e.g. 'trend_bullish_1d:OK macro_bullish_4h:OK
+        regime_up_gate:NO ...'. Same gate list/order as _first_blocking_gate.
+        """
+        return " ".join(f"{name}:{'OK' if bool(passed) else 'NO'}" for name, passed in gates)
+
+    @staticmethod
     def _first_blocking_gate(gates: list) -> str:
         """Walk an ordered (name, passed) gate list — same order as the
         actual entry conditions — and return the name of the first gate
@@ -1581,6 +1589,14 @@ class WolfStrategy(IStrategy):
             f"Crowd: {'LONG' if last.get('oi_crowded_long') or last.get('funding_crowded_long') else 'SHORT' if last.get('oi_crowded_short') or last.get('funding_crowded_short') else '-'} | "
             f"LongGate={long_block} ShortGate={short_block}"
         )
+        if self.ENABLE_LONG:
+            logger.warning(
+                f"[GATES] {metadata['pair']} LONG  | {self._format_gate_checklist(long_gates)}"
+            )
+        if self.ENABLE_SHORT:
+            logger.warning(
+                f"[GATES] {metadata['pair']} SHORT | {self._format_gate_checklist(short_gates)}"
+            )
 
         return dataframe
 
