@@ -264,7 +264,14 @@ class WolfStrategy(IStrategy):
     LONG_ADX_MIN = 0.0              # rely on the regime gate, not a 1H ADX floor
     LONG_VOL_RATIO_MIN = 1.0        # trend continuation doesn't need a volume spike (was 1.3 → starved longs)
     LONG_RSI_MIN = 0.0
-    REGIME_PERSIST_BARS = 6         # up-regime must hold this many 1H bars (was 12; halved for faster bull capture)
+    # 2026-08-13: with the ADX floor sweep tapped out (scratch/ab_adx_floor_loosen.py
+    # found no more room without breaking bear PF), swept this dial too
+    # (scratch/ab_other_frequency_levers.py). Unlike every other frequency
+    # lever tried, 6->4 was NOT a tradeoff: bear2026 PF 1.06->1.25 AND
+    # 4.0->4.5 trades/mo, bull2025 stayed strong at PF 2.12 (from 2.73) and
+    # 5.0->5.8 trades/mo. Going further (3, 2) breaks bear PF back below 1.0
+    # — 4 is the sweet spot, do not lower further without a fresh sweep.
+    REGIME_PERSIST_BARS = 4         # up-regime must hold this many 1H bars (was 12 -> 6 -> 4)
     # With MACRO_SIDE_SWITCH on, the 1D structure already confirms the regime, so
     # the long entry can use the instantaneous up-regime (faster bull capture)
     # instead of the slower persistence-confirmed one. Tested False (instantaneous)
