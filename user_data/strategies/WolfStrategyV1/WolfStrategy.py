@@ -46,6 +46,24 @@ class WolfStrategy(IStrategy):
     INTERFACE_VERSION = 3
     timeframe = "1h"
     can_short = True
+    # 2026-08-14 (user request): re-check the market every 15 min instead of
+    # only at the 1H candle close. All indicators/gates/thresholds still
+    # compute on 1H (and 4H/1D) bars — nothing here is rescaled to 15m, so
+    # this is unrelated to (and does not resurrect) the 15m-base-timeframe
+    # migration that was tried and REJECTED 2026-08-05 (bear2026 PF
+    # 3.58->0.91, see [[wolfstrategy-15m-timeframe]]). This only changes
+    # WHEN the strategy looks, not WHAT it computes: with
+    # process_only_new_candles=False, freqtrade re-runs populate_indicators/
+    # populate_entry_trend on every poll (see internals.process_throttle_secs
+    # in the live config, set to 900s=15min) using the CURRENTLY FORMING 1H
+    # candle, not just the last fully closed one. Catches conditions that
+    # are only true mid-candle and would otherwise be missed entirely if
+    # they reverted before candle close (the tradeoff the user accepted:
+    # gate readings like VOLUME_RATIO can look artificially low early in a
+    # candle since it hasn't finished accumulating volume yet). Cannot be
+    # validated by backtest — backtesting always operates on closed
+    # candles regardless of this flag; only observable forward/live.
+    process_only_new_candles = False
 
     # ------------------------------------------------------------------
     # STARTUP WARMUP
@@ -84,7 +102,10 @@ class WolfStrategy(IStrategy):
     # hyperopt always run fully automatic so research is unaffected.
     # ------------------------------------------------------------------
     MANUAL_APPROVAL_REQUIRED = True
-    AUTO_SIGNAL_TAGS = {"shark_long_1h", "shark_short_1h", "breakdown_short_1h", "retest_short_1h"}
+    AUTO_SIGNAL_TAGS = {
+        "shark_long_1h", "shark_short_1h", "breakdown_short_1h", "retest_short_1h",
+        "perfect_entry_long_15m", "perfect_entry_short_15m",
+    }
 
     # ------------------------------------------------------------------
     # ENTRY FILTER CONFIG (recalibrated 2026-06-18)
@@ -127,6 +148,16 @@ class WolfStrategy(IStrategy):
     # 1D longs still fired and lost -24% with worse DD than the 4H gate. There is
     # no macro gate that captures the bull without also catching bear-rally longs.
     LONG_SIDE_USE_1D = False
+    # ENTRY bias gate (separate from the SIDE_SWITCH gate above): long_bias /
+    # short_bias require trend_bullish_1d/trend_bearish_1d (daily EMA9 vs
+    # EMA21) to agree with macro_bullish_4h/macro_bearish_4h before any entry
+    # fires. A/B tested 2026-08-14 (scratch/ab_entry_1d_gate.py): dropping the
+    # daily gate (4H trend alone) only bumped frequency slightly (bear
+    # 4.1->4.5/mo, bull 4.4->5.6/mo) while PF dropped hard in BOTH regimes
+    # (bear 2.03->1.26, bull 2.16->1.56) and deep losers rose (bear 5->8,
+    # bull 2->3) — REJECTED, the 1D gate is filtering real noise, not just
+    # slowing entries. Keep True.
+    ENTRY_REQUIRE_1D_TREND = True
     VOL_RATIO_MIN = 1.3             # was 1.5
     RSI_LONG_MAX = 72.0             # buy STRENGTH in a confirmed up-regime, not only dips (was 62 → starved longs)
     RSI_SHORT_MIN = 38.0
@@ -237,9 +268,12 @@ class WolfStrategy(IStrategy):
     LONG_VOL_RATIO_TARGET_PCTL = 55.0
     LONG_VOL_RATIO_MIN_LO = 0.8
     LONG_VOL_RATIO_MIN_HI = 1.5
+    # 2026-08-13: matched to the LONG range (was 1.0/1.8) after
+    # scratch/ab_short_symmetry.py found this asymmetry was actively
+    # costing bear PF, not protecting it -- 1.25->1.36 with +0.28 trades/mo.
     SHORT_VOL_RATIO_TARGET_PCTL = 55.0
-    SHORT_VOL_RATIO_MIN_LO = 1.0
-    SHORT_VOL_RATIO_MIN_HI = 1.8
+    SHORT_VOL_RATIO_MIN_LO = 0.8
+    SHORT_VOL_RATIO_MIN_HI = 1.5
 
     # NOTE: RSI band thresholds (RSI_LONG_MAX, RSI_SHORT_MIN, ...) and
     # EXTENSION_MAX_ATR are deliberately NOT made adaptive:
@@ -397,6 +431,61 @@ class WolfStrategy(IStrategy):
     OI_LOOKBACK_BARS = 24               # 24 x 1h = 1 day of OI build-up
     OI_SURGE_PCT = 0.10                 # +10% OI in a day = crowded (majors)
     OI_PRICE_DEADBAND_PCT = 0.005       # <0.5% price move = no clear crowd side
+
+    # F6 SUPPLY/DEMAND ZONE GATE (2026-08-14, user request): the "Structure
+    # timeframe" in the 3-TF entry model (see [[wolfstrategy-entry-1d-gate]])
+    # was liquidity-sweep detection (bull_sweep/bear_sweep), which never
+    # actually gated an entry in production (LONG_REQUIRE_SWEEP defaults
+    # False) — it only fed the X-RAY log. This replaces that with real
+    # Supply/Demand (order-block) zones: the origin candle immediately
+    # before a confirmed BOS (bos_bullish/bos_bearish) becomes the zone
+    # [low, high]; the zone stays "active" until price closes through it
+    # (mitigated) or SD_ZONE_MAX_AGE_BARS pass. Entry only fires while the
+    # CURRENT close sits back inside a still-active zone (a genuine retest
+    # of the level, not the breakout candle itself — see _sd_zone_state).
+    # A/B tested 2026-08-14 (scratch/ab_sd_zone_gate.py): a REAL quality
+    # filter — bear2026 PF 2.03->2.32, DD 1.4->1.0%, deep losers 5->2; bull2025
+    # PF 2.16->1.64 (still >1), DD 1.9->0.5%, deep losers 2->0. But it is a
+    # brutal frequency cut: bear 25->9 trades (4.1->1.5/mo), bull 22->3 trades
+    # (4.4->0.6/mo) — same shape as the F4 extension-veto tradeoff (see NOTE
+    # above: F4 was disabled specifically because ~1-1.6 trades/month makes
+    # the N=8-10 forward-validation gate take 5-8 months). Left OFF by
+    # default for that reason — this is a frequency-vs-quality call for the
+    # user to make explicitly, not an auto-deploy.
+    ENABLE_SD_ZONE_GATE = False
+    SD_ZONE_MAX_AGE_BARS = 48           # 2 days of 1H bars before a zone expires unmitigated
+
+    # --- "PERFECT ENTRY" 3-TIMEFRAME MODE (2026-08-14, exact user spec) ----
+    # User provided a specific 3-TF framework and asked for it applied
+    # EXACTLY, "balanced" tier, accepting a full break from the rest of this
+    # file's entry architecture when enabled:
+    #   Trend TF (H4)      -> macro_bullish_4h / macro_bearish_4h
+    #   Structure TF (H1)  -> demand_zone_active / supply_zone_active (F6)
+    #   Signal TF (m15)    -> Market Structure Shift + Fair Value Gap
+    #                         (_detect_mss_fvg_zones), i.e. the "Buy Limit
+    #                         inside the FVG after MSS" picture the user sent.
+    # When ON, this REPLACES shark_long/shark_short/breakdown_short entirely
+    # (see populate_entry_trend) — no 1D gate, no RSI/MACD/ADX/volume
+    # confluence stack, no F1-F5 vetoes; only the three tiers above plus the
+    # VWAP rule, which stays mandatory per CLAUDE.md rule #3 ("no exceptions")
+    # even in this mode. F3 (MAX_SAME_DIRECTION_TRADES, enforced in
+    # confirm_trade_entry, not here) still applies as a portfolio-level
+    # guard, not a signal-generation gate.
+    #
+    # A/B tested 2026-08-14 (scratch/ab_perfect_entry_mode.py): bear2026 PF
+    # 3.98 / DD 0.3% / 0 deep losers but only 4 trades in 6 months (0.66/mo);
+    # bull2025 PF 0.35 (net LOSING) / 3 trades (0.6/mo) / 1 deep loser. NOT A
+    # VERDICT EITHER WAY — n=3-4 per window is far below even this file's own
+    # N=8-10 forward-validation floor (see [[wolfstrategy-forward-validation-
+    # gate]]); one trade in either direction flips the PF entirely. At
+    # ~0.6/mo combined it would take 1+ year to reach a readable sample.
+    # OFF by default: not because it's disproven, but because there isn't
+    # enough evidence yet to claim it works, and reaching that evidence via
+    # backtest alone isn't practical at this frequency.
+    ENABLE_PERFECT_ENTRY_MODE = False
+    SIGNAL_PIVOT_BARS = 2                # m15 swing-pivot fractal width (2-bar each side)
+    SIGNAL_FVG_SEARCH_BARS = 6           # how far back (m15 bars) to look for the impulse FVG after MSS
+    SIGNAL_ZONE_MAX_AGE_BARS = 32        # 8h of m15 bars before an MSS+FVG zone expires unmitigated
 
     # --- WYCKOFF SPRING/TEST EXPERIMENTAL ENTRY (2026-08-05 research) ------
     # User observation: markets often "probe" a level several times
@@ -960,6 +1049,11 @@ class WolfStrategy(IStrategy):
             [(pair, "1d") for pair in pairs] +
             [(pair, "4h") for pair in pairs] +
             [(pair, "1h") for pair in pairs] +
+            # Perfect Entry Signal timeframe (2026-08-14, see
+            # ENABLE_PERFECT_ENTRY_MODE): MSS+FVG detection needs m15 candles
+            # regardless of whether the mode is currently on, so toggling it
+            # doesn't require a warm-up-affecting informative_pairs change.
+            [(pair, "15m") for pair in pairs] +
             # F5: funding-rate candles (freqtrade-native candle type; the
             # rate value lands in the 'open' column). Binance stores funding
             # on the 1h grid (funding_fee_timeframe).
@@ -971,25 +1065,53 @@ class WolfStrategy(IStrategy):
     # ==========================================
     @staticmethod
     def _format_gate_checklist(gates: list) -> str:
-        """Render every gate's pass/fail on the last closed candle (not just
-        the first blocking one) — e.g. 'trend_bullish_1d:OK macro_bullish_4h:OK
-        regime_up_gate:NO ...'. Same gate list/order as _first_blocking_gate.
+        """Render every gate's pass/fail on the last closed candle as a
+        mobile-friendly, multi-line checklist: failing gates first (the
+        real blockers, easy to spot with the red X), passing gates after
+        (green check). Each line also shows the live value vs its
+        configured threshold (gates: list of (name, passed, detail) tuples)
+        so the log answers not just "which gate failed" but "by how much".
+        Same gate list/order as _first_blocking_gate.
         """
-        return " ".join(f"{name}:{'OK' if bool(passed) else 'NO'}" for name, passed in gates)
+        failed = [g for g in gates if not bool(g[1])]
+        passed_gates = [g for g in gates if bool(g[1])]
+        total = len(gates)
+        ok_count = len(passed_gates)
+
+        header = (
+            f"    ✅ ALL CLEAR ({ok_count}/{total} OK)"
+            if not failed
+            else f"    ❌ BLOCKED ({ok_count}/{total} OK)"
+        )
+        lines = [header]
+        for name, _, detail in failed:
+            lines.append(f"      ❌ {name.upper()}: {detail}")
+        for name, _, detail in passed_gates:
+            lines.append(f"      ✅ {name.upper()}: {detail}")
+        return "\n".join(lines)
 
     @staticmethod
     def _first_blocking_gate(gates: list) -> str:
-        """Walk an ordered (name, passed) gate list — same order as the
-        actual entry conditions — and return the name of the first gate
+        """Walk an ordered (name, passed, detail) gate list — same order as
+        the actual entry conditions — and return the name of the first gate
         that fails on the last closed candle: the real binding constraint,
         instead of a wall of booleans. Returns "READY" if every gate
         passes. Read-only: does not affect entry signals, only what gets
         logged (mirrors scratch/funnel_now.py's gate ordering).
         """
-        for name, passed in gates:
+        for name, passed, _detail in gates:
             if not bool(passed):
                 return name
         return "READY"
+
+    @staticmethod
+    def _format_gate_summary(block: str) -> str:
+        """One-glance icon + uppercase version of a _first_blocking_gate
+        result, used on the compact [V7 SMC] summary line."""
+        if block in ("READY", "disabled"):
+            icon = "✅" if block == "READY" else "⚪"
+            return f"{icon} {block.upper()}"
+        return f"❌ {block.upper()}"
 
     # ==========================================
     # ADAPTIVE THRESHOLDS (percentile-based, market-driven)
@@ -1056,6 +1178,158 @@ class WolfStrategy(IStrategy):
                 bars_since += 1
             out[i] = run if bars_since <= lookback_bars else 0
         return pd.Series(out, index=sweep_flags.index)
+
+    @staticmethod
+    def _sd_zone_state(
+        zone_trigger: pd.Series,
+        zone_low: pd.Series,
+        zone_high: pd.Series,
+        close: pd.Series,
+        max_age_bars: int,
+        bullish: bool,
+    ) -> pd.Series:
+        """Track the most recent unmitigated Supply/Demand (order-block)
+        zone and report whether the CURRENT close sits back inside it — a
+        genuine retest, not the breakout candle itself (bars_since >= 1).
+        Backward-looking state machine (no lookahead): a zone is anchored
+        at [zone_low[i], zone_high[i]] whenever zone_trigger[i] fires (those
+        bounds come from the already-closed origin candle, one bar before
+        the BOS), and is cleared either by age (> max_age_bars) or by price
+        closing all the way through it (demand: close < zone_low; supply:
+        close > zone_high — the level failed to hold).
+        """
+        n = len(close)
+        out = np.zeros(n, dtype=bool)
+        trig_arr = zone_trigger.to_numpy()
+        lo_arr = zone_low.to_numpy()
+        hi_arr = zone_high.to_numpy()
+        close_arr = close.to_numpy()
+
+        zone_lo, zone_hi = np.nan, np.nan
+        bars_since = 10**9
+        for i in range(n):
+            if trig_arr[i] and not np.isnan(lo_arr[i]) and not np.isnan(hi_arr[i]):
+                zone_lo, zone_hi = lo_arr[i], hi_arr[i]
+                bars_since = 0
+            elif not np.isnan(zone_lo):
+                bars_since += 1
+                mitigated = (close_arr[i] < zone_lo) if bullish else (close_arr[i] > zone_hi)
+                if mitigated or bars_since > max_age_bars:
+                    zone_lo, zone_hi = np.nan, np.nan
+            if not np.isnan(zone_lo) and bars_since >= 1:
+                out[i] = zone_lo <= close_arr[i] <= zone_hi
+        return pd.Series(out, index=close.index)
+
+    @staticmethod
+    def _detect_mss_fvg_zones(
+        high: pd.Series, low: pd.Series, close: pd.Series, open_: pd.Series,
+        pivot_bars: int, fvg_search_bars: int, zone_max_age_bars: int,
+    ) -> tuple:
+        """Perfect Entry Signal-timeframe primitive (user-specified 2026-08-14):
+        Market Structure Shift (MSS) + Fair Value Gap (FVG), run on whatever
+        timeframe is passed in (intended for m15).
+
+        Sequence detected, bullish side (bearish is the exact mirror):
+          1. Track confirmed swing pivots (a `pivot_bars`-bar fractal: pivot at
+             candle c is confirmed once `pivot_bars` further candles have
+             closed, so pivot_bars=2 needs 2 bars of hindsight — no lookahead,
+             the pivot's own high/low value is from candle c, only its
+             CONFIRMATION is delayed).
+          2. A new confirmed swing low that undercuts the prior confirmed swing
+             low ("LL") arms a bullish-MSS watch, using the swing HIGH that
+             sat between them ("LH") as the level to reclaim.
+          3. MSS trigger: close breaks back above that LH.
+          4. On the MSS bar, scan back up to `fvg_search_bars` candles for a
+             3-candle bullish Fair Value Gap (candle[k-2].high < candle[k].low)
+             — the imbalance left by the impulse leg that broke structure.
+             None found -> fall back to the MSS breakout candle's own body as
+             the zone (still a valid, if cruder, reaction level).
+          5. The [gap_low, gap_high] zone is "active" (a valid Buy Limit /
+             Sell Limit retest) starting the bar AFTER it forms, until either
+             price closes all the way through it (mitigated) or
+             zone_max_age_bars pass — same lifecycle rule as _sd_zone_state.
+
+        Returns (bull_active, bear_active) boolean Series, no lookahead.
+        """
+        n = len(close)
+        h = high.to_numpy(); l = low.to_numpy(); c = close.to_numpy(); o = open_.to_numpy()
+
+        bull_active = np.zeros(n, dtype=bool)
+        bear_active = np.zeros(n, dtype=bool)
+
+        last_swing_low, prior_swing_low = np.nan, np.nan
+        last_swing_high, prior_swing_high = np.nan, np.nan
+
+        awaiting_bull_mss, bull_mss_ref_high = False, np.nan
+        awaiting_bear_mss, bear_mss_ref_low = False, np.nan
+
+        bull_zone_lo, bull_zone_hi, bull_bars_since = np.nan, np.nan, 10**9
+        bear_zone_lo, bear_zone_hi, bear_bars_since = np.nan, np.nan, 10**9
+
+        w = pivot_bars
+        for i in range(n):
+            # --- confirm pivot at candidate c_idx = i - w (uses only data up to i) ---
+            c_idx = i - w
+            if c_idx >= w:
+                win_hi = h[c_idx - w: c_idx + w + 1]
+                win_lo = l[c_idx - w: c_idx + w + 1]
+                if h[c_idx] == win_hi.max():
+                    prior_swing_high, last_swing_high = last_swing_high, h[c_idx]
+                    if (not np.isnan(prior_swing_high) and last_swing_high > prior_swing_high
+                            and not np.isnan(last_swing_low)):
+                        awaiting_bear_mss, bear_mss_ref_low = True, last_swing_low
+                if l[c_idx] == win_lo.min():
+                    prior_swing_low, last_swing_low = last_swing_low, l[c_idx]
+                    if (not np.isnan(prior_swing_low) and last_swing_low < prior_swing_low
+                            and not np.isnan(last_swing_high)):
+                        awaiting_bull_mss, bull_mss_ref_high = True, last_swing_high
+
+            # --- MSS trigger + FVG anchoring ---
+            new_bull_zone = False
+            if awaiting_bull_mss and c[i] > bull_mss_ref_high:
+                new_bull_zone = True
+                awaiting_bull_mss = False
+                zone_lo = zone_hi = None
+                for k in range(i, max(1, i - fvg_search_bars) - 1, -1):
+                    if k >= 2 and h[k - 2] < l[k]:
+                        zone_lo, zone_hi = h[k - 2], l[k]
+                        break
+                if zone_lo is None:
+                    zone_lo, zone_hi = min(o[i], c[i]), max(o[i], c[i])
+
+            new_bear_zone = False
+            if awaiting_bear_mss and c[i] < bear_mss_ref_low:
+                new_bear_zone = True
+                awaiting_bear_mss = False
+                zone_lo_b = zone_hi_b = None
+                for k in range(i, max(1, i - fvg_search_bars) - 1, -1):
+                    if k >= 2 and l[k - 2] > h[k]:
+                        zone_lo_b, zone_hi_b = h[k], l[k - 2]
+                        break
+                if zone_lo_b is None:
+                    zone_lo_b, zone_hi_b = min(o[i], c[i]), max(o[i], c[i])
+
+            # --- zone lifecycle (anchor / mitigate / age), mirrors _sd_zone_state ---
+            if new_bull_zone:
+                bull_zone_lo, bull_zone_hi, bull_bars_since = zone_lo, zone_hi, 0
+            elif not np.isnan(bull_zone_lo):
+                bull_bars_since += 1
+                if c[i] < bull_zone_lo or bull_bars_since > zone_max_age_bars:
+                    bull_zone_lo = bull_zone_hi = np.nan
+            if not np.isnan(bull_zone_lo) and bull_bars_since >= 1:
+                bull_active[i] = bull_zone_lo <= c[i] <= bull_zone_hi
+
+            if new_bear_zone:
+                bear_zone_lo, bear_zone_hi, bear_bars_since = zone_lo_b, zone_hi_b, 0
+            elif not np.isnan(bear_zone_lo):
+                bear_bars_since += 1
+                if c[i] > bear_zone_hi or bear_bars_since > zone_max_age_bars:
+                    bear_zone_lo = bear_zone_hi = np.nan
+            if not np.isnan(bear_zone_lo) and bear_bars_since >= 1:
+                bear_active[i] = bear_zone_lo <= c[i] <= bear_zone_hi
+
+        return (pd.Series(bull_active, index=close.index),
+                pd.Series(bear_active, index=close.index))
 
     # ==========================================
     # F5 POSITIONING DATA (funding rate + open interest)
@@ -1185,10 +1459,14 @@ class WolfStrategy(IStrategy):
             (inf_4h["close"] > inf_4h["ema_50"]) |
             (inf_4h["ema_20"] > inf_4h["ema_50"])
         )
+        # 2026-08-13: mirrored to the long formula's OR-of-2-terms shape (was
+        # AND-of-3, including a close<ema_200 term the long side has no
+        # equivalent of) — scratch/ab_short_symmetry.py showed this asymmetry
+        # cost frequency for free: +0.28 bear trades/mo, PF unchanged in
+        # both canonical windows.
         inf_4h["macro_bearish"] = (
-            (inf_4h["close"] < inf_4h["ema_50"]) &
-            (inf_4h["ema_20"] < inf_4h["ema_50"]) &
-            (inf_4h["close"] < inf_4h["ema_200"])
+            (inf_4h["close"] < inf_4h["ema_50"]) |
+            (inf_4h["ema_20"] < inf_4h["ema_50"])
         )
 
         # 4H Key Levels (Liquidity Pools — where retail stops cluster)
@@ -1253,7 +1531,36 @@ class WolfStrategy(IStrategy):
         dataframe["bear_sweep_1h"] = dataframe["bear_sweep_1h_src_1h"].fillna(False).astype(bool)
 
         # ------------------------------------------------------------------
-        # 3. MICRO EXECUTION (15m) — Precision Entry
+        # 2b. PERFECT ENTRY — Signal timeframe (m15): Market Structure Shift
+        # + Fair Value Gap. Computed unconditionally (informative_pairs
+        # already pulls m15) so ENABLE_PERFECT_ENTRY_MODE is a pure entry-
+        # logic toggle, not a warm-up-affecting one.
+        # ------------------------------------------------------------------
+        inf_15m = self.dp.get_pair_dataframe(pair=metadata["pair"], timeframe="15m")
+        inf_15m["mss_fvg_bull"], inf_15m["mss_fvg_bear"] = self._detect_mss_fvg_zones(
+            inf_15m["high"], inf_15m["low"], inf_15m["close"], inf_15m["open"],
+            self.SIGNAL_PIVOT_BARS, self.SIGNAL_FVG_SEARCH_BARS, self.SIGNAL_ZONE_MAX_AGE_BARS,
+        )
+        # merge_informative_pair only supports merging a SLOWER (or equal)
+        # timeframe onto the base — it errors on a faster-onto-slower merge
+        # like m15 -> 1h. Align manually: each 1H candle (opening at date T,
+        # closing at T+1h) should see the state of the LAST 15m candle that
+        # has itself fully closed by then, i.e. the one opening at T+45m
+        # (closes exactly at T+1h) — merge_asof(backward) on that shifted key.
+        base_date_dtype = dataframe["date"].dtype
+        signal_15m = inf_15m[["date", "mss_fvg_bull", "mss_fvg_bear"]].rename(columns={"date": "date_15m"})
+        signal_15m["date_15m"] = signal_15m["date_15m"].astype(base_date_dtype)
+        merge_date = (dataframe["date"] + pd.Timedelta(minutes=45)).astype(base_date_dtype)
+        dataframe = dataframe.assign(_merge_date=merge_date)
+        dataframe = pd.merge_asof(
+            dataframe, signal_15m, left_on="_merge_date", right_on="date_15m", direction="backward",
+        )
+        dataframe = dataframe.drop(columns=["_merge_date", "date_15m"])
+        dataframe["mss_fvg_bull_15m"] = dataframe.pop("mss_fvg_bull").fillna(False).astype(bool)
+        dataframe["mss_fvg_bear_15m"] = dataframe.pop("mss_fvg_bear").fillna(False).astype(bool)
+
+        # ------------------------------------------------------------------
+        # 3. EXECUTION (1H, self.timeframe) — Precision Entry
         # ------------------------------------------------------------------
         dataframe["ema_9"]   = ta.EMA(dataframe, timeperiod=9)
         dataframe["ema_20"]  = ta.EMA(dataframe, timeperiod=20)
@@ -1346,7 +1653,7 @@ class WolfStrategy(IStrategy):
             (dataframe["upper_wick"] > dataframe["body_size"] * 0.3)
         )
  
-        # Recent sweeps (within last 12 candles = 3H window)
+        # Recent sweeps (within last 12 candles = 12H window on the 1H base timeframe)
         dataframe["bull_sweep_recent"] = dataframe["bull_sweep"].rolling(12).max().fillna(0).astype(bool)
         dataframe["bear_sweep_recent"] = dataframe["bear_sweep"].rolling(12).max().fillna(0).astype(bool)
 
@@ -1367,6 +1674,21 @@ class WolfStrategy(IStrategy):
             (dataframe["close"] < dataframe["open"])        &
             (dataframe["bear_sweep_recent"] | dataframe["bear_sweep_4h"]) &
             (dataframe["volume_ratio"] > 1.0)
+        )
+
+        # ------------------------------------------------------------------
+        # 5a. SUPPLY/DEMAND ZONES (order blocks, F6 — see ENABLE_SD_ZONE_GATE)
+        # Zone origin = the already-closed candle right before the BOS bar.
+        # ------------------------------------------------------------------
+        zone_origin_low  = dataframe["low"].shift(1)
+        zone_origin_high = dataframe["high"].shift(1)
+        dataframe["demand_zone_active"] = self._sd_zone_state(
+            dataframe["bos_bullish"], zone_origin_low, zone_origin_high,
+            dataframe["close"], self.SD_ZONE_MAX_AGE_BARS, bullish=True,
+        )
+        dataframe["supply_zone_active"] = self._sd_zone_state(
+            dataframe["bos_bearish"], zone_origin_low, zone_origin_high,
+            dataframe["close"], self.SD_ZONE_MAX_AGE_BARS, bullish=False,
         )
 
         # ------------------------------------------------------------------
@@ -1530,79 +1852,136 @@ class WolfStrategy(IStrategy):
         rsi_4h_val = 50.0 if pd.isna(rsi_4h_val) else rsi_4h_val
         macd_prev = dataframe["macdhist"].iloc[-2] if len(dataframe) > 1 else float("nan")
 
+        adx_1h_val = last.get("adx", 0.0)
+        vwap_val = last.get("vwap", 0.0)
+        close_val = last.get("close", 0.0)
+        rsi_val = last.get("rsi", 50.0)
+        macdhist_val = last.get("macdhist", 0.0)
+        ema9_1d = last.get("ema_9_1d", float("nan"))
+        ema21_1d = last.get("ema_21_1d", float("nan"))
+        close_4h = last.get("close_4h", float("nan"))
+        ema50_4h = last.get("ema_50_4h", float("nan"))
+        ema200_val = last.get("ema_200", float("inf"))
+        adx4h_val = last.get("adx_4h", float("nan"))
+        adx_floor_val = last.get("adx_regime_min_adaptive_4h", self.ADX_REGIME_MIN)
+
         long_gates = [
-            ("trend_bullish_1d", last.get("trend_bullish_1d", False)),
-            ("macro_bullish_4h", last.get("macro_bullish_4h", False)),
-            ("rsi_1d_htf", rsi_1d_val < self.RSI_1D_LONG_MAX),
-            ("rsi_4h_htf", rsi_4h_val < self.RSI_4H_LONG_MAX),
-            ("regime_up_gate", bool(regime_up_gate_val)),
-            ("above_vwap", last.get("above_vwap", False)),
-            ("rsi_pullback", last.get("rsi", 0.0) < self.RSI_LONG_MAX),
-            ("rsi_not_dip", last.get("rsi", 0.0) > self.LONG_RSI_MIN),
-            ("adx_1h", last.get("adx", 0.0) > self.LONG_ADX_MIN),
-            ("volume_ratio", last.get("volume_ratio", 0.0) > long_vol_min),
-            ("macd_rising", last.get("macdhist", 0.0) > macd_prev),
+            ("trend_bullish_1d",
+             last.get("trend_bullish_1d", False) if self.ENTRY_REQUIRE_1D_TREND else True,
+             f"1D EMA9 {ema9_1d:.2f} vs EMA21 {ema21_1d:.2f}" if self.ENTRY_REQUIRE_1D_TREND else "gate off (ENTRY_REQUIRE_1D_TREND=False)"),
+            ("macro_bullish_4h", last.get("macro_bullish_4h", False),
+             f"4H close {close_4h:.2f} vs EMA50 {ema50_4h:.2f}"),
+            ("rsi_1d_htf", rsi_1d_val < self.RSI_1D_LONG_MAX,
+             f"{rsi_1d_val:.0f} < max {self.RSI_1D_LONG_MAX:.0f}"),
+            ("rsi_4h_htf", rsi_4h_val < self.RSI_4H_LONG_MAX,
+             f"{rsi_4h_val:.0f} < max {self.RSI_4H_LONG_MAX:.0f}"),
+            ("regime_up_gate", bool(regime_up_gate_val),
+             f"ADX4h {adx4h_val:.0f} vs floor {adx_floor_val:.0f} ({'confirmed' if self.LONG_USE_CONFIRMED else 'instant'})"),
+            ("above_vwap", last.get("above_vwap", False),
+             f"close {close_val:.2f} vs VWAP {vwap_val:.2f}"),
+            ("rsi_pullback", rsi_val < self.RSI_LONG_MAX,
+             f"{rsi_val:.0f} < max {self.RSI_LONG_MAX:.0f}"),
+            ("rsi_not_dip", rsi_val > self.LONG_RSI_MIN,
+             f"{rsi_val:.0f} > min {self.LONG_RSI_MIN:.0f}"),
+            ("adx_1h", adx_1h_val > self.LONG_ADX_MIN,
+             f"{adx_1h_val:.0f} > min {self.LONG_ADX_MIN:.0f}"),
+            ("volume_ratio", last.get("volume_ratio", 0.0) > long_vol_min,
+             f"{last.get('volume_ratio', 0.0):.2f}x > min {long_vol_min:.2f}x"),
+            ("macd_rising", macdhist_val > macd_prev,
+             f"{macdhist_val:.4f} > prev {macd_prev:.4f}"),
         ]
         if self.LONG_REQUIRE_SWEEP:
-            long_gates.append(("bull_sweep_present",
-                                bool(last.get("bull_sweep_recent", False)) or bool(last.get("bull_sweep", False))))
+            sweep_ok = bool(last.get("bull_sweep_recent", False)) or bool(last.get("bull_sweep", False))
+            long_gates.append(("bull_sweep_present", sweep_ok, f"recent bull sweep: {sweep_ok}"))
         if self.ENABLE_LONG_SWEEP_VETO:
-            long_gates.append(("f1_no_bear_sweep_4h", not bool(last.get("bear_sweep_4h", False))))
+            bear_sweep_4h = bool(last.get("bear_sweep_4h", False))
+            long_gates.append(("f1_no_bear_sweep_4h", not bear_sweep_4h, f"4H bear sweep active: {bear_sweep_4h}"))
         if self.ENABLE_EXTENSION_VETO:
-            long_gates.append(("f4_not_extended", last.get("extension_atr", 0.0) <= self.EXTENSION_MAX_ATR))
+            ext_val = last.get("extension_atr", 0.0)
+            long_gates.append(("f4_not_extended", ext_val <= self.EXTENSION_MAX_ATR,
+                                f"{ext_val:.2f} ATR <= max {self.EXTENSION_MAX_ATR:.2f} ATR"))
         if self.ENABLE_FUNDING_VETO:
-            long_gates.append(("f5_not_funding_crowded", not bool(last.get("funding_crowded_long", False))))
+            fund_crowded = bool(last.get("funding_crowded_long", False))
+            long_gates.append(("f5_not_funding_crowded", not fund_crowded,
+                                f"funding {last.get('funding_rate', 0.0) * 100:.4f}% crowded: {fund_crowded}"))
         if self.ENABLE_OI_VETO:
-            long_gates.append(("f5_not_oi_crowded", not bool(last.get("oi_crowded_long", False))))
-        if self.MACRO_SIDE_SWITCH:
-            long_gates.append(("side_long_ok", last.get("side_long_ok", False)))
+            oi_crowded = bool(last.get("oi_crowded_long", False))
+            long_gates.append(("f5_not_oi_crowded", not oi_crowded,
+                                f"OI24h {last.get('oi_change_pct', 0.0) * 100:+.1f}% crowded: {oi_crowded}"))
+        # side_long_ok deliberately NOT listed here (2026-08-14 cleanup): with
+        # SIDE_SWITCH_USE_4H=True it duplicates struct_up, already covered by
+        # REGIME_UP_GATE above — see the cleanup note in populate_entry_trend.
 
         short_gates = [
-            ("trend_bearish_1d", last.get("trend_bearish_1d", False)),
-            ("macro_bearish_4h", last.get("macro_bearish_4h", False)),
-            ("rsi_1d_htf", rsi_1d_val > self.RSI_1D_SHORT_MIN),
-            ("rsi_4h_htf", rsi_4h_val > self.RSI_4H_SHORT_MIN),
-            ("regime_down_gate", bool(regime_down_gate_val)),
-            ("below_vwap", last.get("below_vwap", False)),
-            ("below_ema200", last.get("close", 0.0) < last.get("ema_200", float("inf"))),
-            ("rsi_bounce", last.get("rsi", 100.0) > self.RSI_SHORT_MIN),
-            ("volume_ratio", last.get("volume_ratio", 0.0) > short_vol_min),
-            ("macd_falling", last.get("macdhist", 0.0) < macd_prev),
+            ("trend_bearish_1d",
+             last.get("trend_bearish_1d", False) if self.ENTRY_REQUIRE_1D_TREND else True,
+             f"1D EMA9 {ema9_1d:.2f} vs EMA21 {ema21_1d:.2f}" if self.ENTRY_REQUIRE_1D_TREND else "gate off (ENTRY_REQUIRE_1D_TREND=False)"),
+            ("macro_bearish_4h", last.get("macro_bearish_4h", False),
+             f"4H close {close_4h:.2f} vs EMA50 {ema50_4h:.2f}"),
+            ("rsi_1d_htf", rsi_1d_val > self.RSI_1D_SHORT_MIN,
+             f"{rsi_1d_val:.0f} > min {self.RSI_1D_SHORT_MIN:.0f}"),
+            ("rsi_4h_htf", rsi_4h_val > self.RSI_4H_SHORT_MIN,
+             f"{rsi_4h_val:.0f} > min {self.RSI_4H_SHORT_MIN:.0f}"),
+            ("regime_down_gate", bool(regime_down_gate_val),
+             f"ADX4h {adx4h_val:.0f} vs floor {adx_floor_val:.0f} ({'confirmed' if self.SHORT_USE_CONFIRMED else 'instant'})"),
+            ("below_vwap", last.get("below_vwap", False),
+             f"close {close_val:.2f} vs VWAP {vwap_val:.2f}"),
+            ("below_ema200", close_val < ema200_val,
+             f"close {close_val:.2f} < EMA200 {ema200_val:.2f}"),
+            ("rsi_bounce", rsi_val > self.RSI_SHORT_MIN,
+             f"{rsi_val:.0f} > min {self.RSI_SHORT_MIN:.0f}"),
+            ("volume_ratio", last.get("volume_ratio", 0.0) > short_vol_min,
+             f"{last.get('volume_ratio', 0.0):.2f}x > min {short_vol_min:.2f}x"),
+            ("macd_falling", macdhist_val < macd_prev,
+             f"{macdhist_val:.4f} < prev {macd_prev:.4f}"),
         ]
         if self.ENABLE_SHORT_CLIMAX_VETO:
-            short_gates.append(("f2_not_climax", last.get("volume_ratio", 0.0) <= self.SHORT_VOL_RATIO_MAX))
+            vr = last.get("volume_ratio", 0.0)
+            short_gates.append(("f2_not_climax", vr <= self.SHORT_VOL_RATIO_MAX,
+                                 f"{vr:.2f}x <= max {self.SHORT_VOL_RATIO_MAX:.2f}x"))
         if self.ENABLE_EXTENSION_VETO:
-            short_gates.append(("f4_not_extended", last.get("extension_atr", 0.0) >= -self.EXTENSION_MAX_ATR))
+            ext_val = last.get("extension_atr", 0.0)
+            short_gates.append(("f4_not_extended", ext_val >= -self.EXTENSION_MAX_ATR,
+                                 f"{ext_val:.2f} ATR >= min {-self.EXTENSION_MAX_ATR:.2f} ATR"))
         if self.ENABLE_FUNDING_VETO:
-            short_gates.append(("f5_not_funding_crowded", not bool(last.get("funding_crowded_short", False))))
+            fund_crowded = bool(last.get("funding_crowded_short", False))
+            short_gates.append(("f5_not_funding_crowded", not fund_crowded,
+                                 f"funding {last.get('funding_rate', 0.0) * 100:.4f}% crowded: {fund_crowded}"))
         if self.ENABLE_OI_VETO:
-            short_gates.append(("f5_not_oi_crowded", not bool(last.get("oi_crowded_short", False))))
-        if self.MACRO_SIDE_SWITCH:
-            short_gates.append(("side_short_ok", last.get("side_short_ok", False)))
+            oi_crowded = bool(last.get("oi_crowded_short", False))
+            short_gates.append(("f5_not_oi_crowded", not oi_crowded,
+                                 f"OI24h {last.get('oi_change_pct', 0.0) * 100:+.1f}% crowded: {oi_crowded}"))
+        # side_short_ok deliberately NOT listed here — same redundancy as
+        # side_long_ok above (duplicates struct_dn, already in REGIME_DOWN_GATE).
 
         long_block = self._first_blocking_gate(long_gates) if self.ENABLE_LONG else "disabled"
         short_block = self._first_blocking_gate(short_gates) if self.ENABLE_SHORT else "disabled"
+        long_ok_count = sum(1 for _, passed, _ in long_gates if bool(passed))
+        short_ok_count = sum(1 for _, passed, _ in short_gates if bool(passed))
+        long_pct = round(100 * long_ok_count / len(long_gates)) if long_gates else 0
+        short_pct = round(100 * short_ok_count / len(short_gates)) if short_gates else 0
+        lean = "LONG" if long_pct > short_pct else "SHORT" if short_pct > long_pct else "NEUTRAL"
 
         logger.warning(
-            f"[V7 SMC] {metadata['pair']} | "
-            f"4H: {'BULL' if last.get('macro_bullish_4h') else 'BEAR' if last.get('macro_bearish_4h') else 'NEUT'} | "
-            f"Sweep15m: {'BULL' if last.get('bull_sweep_recent') else 'BEAR' if last.get('bear_sweep_recent') else '-'} | "
-            f"BOS: {'BULL' if last.get('bos_bullish') else 'BEAR' if last.get('bos_bearish') else '-'} | "
-            f"RSI={last['rsi']:.0f} ADX(4h)={last.get('adx_4h', float('nan')):.0f}"
-            f"/floor={last.get('adx_regime_min_adaptive_4h', self.ADX_REGIME_MIN):.0f} "
-            f"Vol={last['volume_ratio']:.1f}x | "
-            f"Fund={last.get('funding_rate', 0.0) * 100:.4f}% "
-            f"OI24h={last.get('oi_change_pct', 0.0) * 100:+.1f}% "
-            f"Crowd: {'LONG' if last.get('oi_crowded_long') or last.get('funding_crowded_long') else 'SHORT' if last.get('oi_crowded_short') or last.get('funding_crowded_short') else '-'} | "
-            f"LongGate={long_block} ShortGate={short_block}"
+            f"\n🐺 [{metadata['pair']}]\n"
+            f"📈 TREND(4H):{'🟢BULL' if last.get('macro_bullish_4h') else '🔴BEAR' if last.get('macro_bearish_4h') else '⚪NEUT'} "
+            f"| SWEEP(1H):{'🟢BULL' if last.get('bull_sweep_recent') else '🔴BEAR' if last.get('bear_sweep_recent') else '-'} "
+            f"| BOS:{'🟢BULL' if last.get('bos_bullish') else '🔴BEAR' if last.get('bos_bearish') else '-'}\n"
+            f"📊 RSI={rsi_val:.0f}  ADX(4h)={adx4h_val:.0f}/floor={adx_floor_val:.0f}  VOL={last.get('volume_ratio', 0.0):.1f}x\n"
+            f"💰 FUND={last.get('funding_rate', 0.0) * 100:.4f}%"
+            f"  OI24H={last.get('oi_change_pct', 0.0) * 100:+.1f}%"
+            f"  CROWD:{'🟢LONG' if last.get('oi_crowded_long') or last.get('funding_crowded_long') else '🔴SHORT' if last.get('oi_crowded_short') or last.get('funding_crowded_short') else '-'}\n"
+            f"🎯 LONG_GATE ={self._format_gate_summary(long_block)}  ({long_ok_count}/{len(long_gates)} OK, {long_pct}%)\n"
+            f"🎯 SHORT_GATE={self._format_gate_summary(short_block)}  ({short_ok_count}/{len(short_gates)} OK, {short_pct}%)\n"
+            f"🧭 BOT LEAN: {lean}  (LONG {long_pct}% vs SHORT {short_pct}% of gates passing)"
         )
         if self.ENABLE_LONG:
             logger.warning(
-                f"[GATES] {metadata['pair']} LONG  | {self._format_gate_checklist(long_gates)}"
+                f"[GATES] {metadata['pair']} LONG\n{self._format_gate_checklist(long_gates)}"
             )
         if self.ENABLE_SHORT:
             logger.warning(
-                f"[GATES] {metadata['pair']} SHORT | {self._format_gate_checklist(short_gates)}"
+                f"[GATES] {metadata['pair']} SHORT\n{self._format_gate_checklist(short_gates)}"
             )
 
         return dataframe
@@ -1624,6 +2003,38 @@ class WolfStrategy(IStrategy):
 
         has_volume = dataframe["volume"] > 0
 
+        if self.ENABLE_PERFECT_ENTRY_MODE:
+            # ==========================================
+            # PERFECT ENTRY — exact 3-TF spec (2026-08-14), REPLACES every
+            # other entry path below (shark/breakdown/retest/wyckoff) while
+            # active. Trend=H4, Structure=H1 S/D zone (F6), Signal=m15
+            # MSS+FVG. VWAP stays mandatory (CLAUDE.md #3, no exceptions);
+            # everything else the old architecture stacked on top (1D gate,
+            # RSI/MACD/ADX/volume confluence, F1-F5 vetoes, side-switch) is
+            # deliberately NOT applied here, per the user's explicit request
+            # to break from that structure. F3 concurrency guard still
+            # applies (confirm_trade_entry, portfolio-level, not a signal gate).
+            # ==========================================
+            perfect_long = (
+                has_volume &
+                dataframe["macro_bullish_4h"] &          # KHUNG XU HUONG (H4)
+                dataframe["demand_zone_active"] &         # KHUNG CAU TRUC (H1 demand zone)
+                dataframe["mss_fvg_bull_15m"] &           # KHUNG TIN HIEU (m15 MSS + FVG)
+                dataframe["above_vwap"]                   # VWAP RULE (CLAUDE.md #3)
+            )
+            perfect_short = (
+                has_volume &
+                dataframe["macro_bearish_4h"] &
+                dataframe["supply_zone_active"] &
+                dataframe["mss_fvg_bear_15m"] &
+                dataframe["below_vwap"]
+            )
+            if self.ENABLE_LONG:
+                dataframe.loc[perfect_long, ["enter_long", "enter_tag"]] = (1, "perfect_entry_long_15m")
+            if self.ENABLE_SHORT:
+                dataframe.loc[perfect_short, ["enter_short", "enter_tag"]] = (1, "perfect_entry_short_15m")
+            return dataframe
+
         if self.ENABLE_ADAPTIVE_THRESHOLDS and "long_vol_ratio_min_adaptive" in dataframe.columns:
             long_vol_ratio_min = dataframe["long_vol_ratio_min_adaptive"]
             short_vol_ratio_min = dataframe["short_vol_ratio_min_adaptive"]
@@ -1636,8 +2047,9 @@ class WolfStrategy(IStrategy):
         # Context: 1D Bullish + 4H Bullish, gated by the UP trend-regime.
         # Trigger: VWAP-aligned pullback + volume + MACD turning up.
         # ==========================================
+        trend_1d_long_ok = dataframe["trend_bullish_1d"] if self.ENTRY_REQUIRE_1D_TREND else True
         long_bias = (
-            (dataframe["trend_bullish_1d"]) &
+            trend_1d_long_ok &
             (dataframe["macro_bullish_4h"]) &
             (dataframe["rsi_1d"].fillna(50) < self.RSI_1D_LONG_MAX) &  # not buying the daily top
             (dataframe["rsi_4h"].fillna(50) < self.RSI_4H_LONG_MAX)    # not buying the 4H top
@@ -1664,13 +2076,17 @@ class WolfStrategy(IStrategy):
             # F1: an active 4H bear sweep = SM distributing into this rally;
             # longing here is buying the trap (see ENTRY VETO FILTERS above).
             shark_long &= ~dataframe["bear_sweep_4h"].fillna(False).astype(bool)
+        if self.ENABLE_SD_ZONE_GATE:
+            # F6: only long on a genuine retest of a still-active demand zone.
+            shark_long &= dataframe["demand_zone_active"]
 
         # ==========================================
         # SHORT ENTRIES (SHARK HUNTING)
         # Context: 1D Bearish + 4H Bearish, gated by the DOWN trend-regime.
         # ==========================================
+        trend_1d_short_ok = dataframe["trend_bearish_1d"] if self.ENTRY_REQUIRE_1D_TREND else True
         short_bias = (
-            (dataframe["trend_bearish_1d"]) &
+            trend_1d_short_ok &
             (dataframe["macro_bearish_4h"]) &
             (dataframe["rsi_1d"].fillna(50) > self.RSI_1D_SHORT_MIN) &  # not shorting the daily bottom
             (dataframe["rsi_4h"].fillna(50) > self.RSI_4H_SHORT_MIN)    # not shorting the 4H bottom
@@ -1689,6 +2105,9 @@ class WolfStrategy(IStrategy):
             (dataframe["volume_ratio"] > short_vol_ratio_min) &   # above-average participation (adaptive floor)
             (dataframe["macdhist"] < dataframe["macdhist"].shift(1))  # momentum turning down
         )
+        if self.ENABLE_SD_ZONE_GATE:
+            # F6: only short on a genuine retest of a still-active supply zone.
+            shark_short &= dataframe["supply_zone_active"]
 
         # ==========================================
         # BREAKDOWN SHORT (continuation) — short the down-leg as price breaks a
@@ -1699,7 +2118,6 @@ class WolfStrategy(IStrategy):
         # ==========================================
         breakdown_short = (
             has_volume &
-            (dataframe["side_short_ok"]) &                       # HTF structure bearish (4h/1d per flag)
             regime_down_gate &                                   # down-regime (sustained or instantaneous)
             (dataframe["below_vwap"]) &                          # VWAP RULE
             (dataframe["close"] < dataframe["ema_200"]) &        # 1H downtrend
@@ -1757,8 +2175,7 @@ class WolfStrategy(IStrategy):
             (dataframe["high"] >= retest_level - self.RETEST_TOL_ATR * dataframe["atr"]) &
             (dataframe["close"] < retest_level) &                # rejected: closed back below the level
             (dataframe["close"] < dataframe["open"]) &           # bearish rejection candle
-            (dataframe["side_short_ok"]) &                       # HTF gates re-checked at trigger
-            regime_down_gate &
+            regime_down_gate &                                   # HTF gate re-checked at trigger
             (dataframe["below_vwap"])
         )
         if self.ENABLE_EXTENSION_VETO:
@@ -1767,11 +2184,19 @@ class WolfStrategy(IStrategy):
         # F5 re-checked at the retest trigger candle as well.
         retest_short &= not_crowded_short
 
-        # Macro side-switch: only the side aligned with the HTF structure may fire
-        # (4H or 1D per SIDE_SWITCH_USE_4H).
-        if self.MACRO_SIDE_SWITCH:
-            shark_long  &= dataframe["side_long_ok"]
-            shark_short &= dataframe["side_short_ok"]
+        # Macro side-switch (2026-08-14 cleanup): side_long_ok/side_short_ok
+        # used to be re-applied here on top of regime_up_gate/regime_down_gate,
+        # but with SIDE_SWITCH_USE_4H=True (the settled config — see
+        # [[wolfstrategy-sideswitch-4h]]) side_long_ok IS the exact same
+        # struct_up boolean (EMA25/EMA99, 4H) that regime_up already requires
+        # as one of its own sub-conditions — A AND B AND A = A AND B, so this
+        # was a pure no-op duplicate check that inflated the [GATES] pass
+        # count without adding any real filtering. Dropped here (and from
+        # breakdown_short/retest_short above, same redundancy) — shark_long/
+        # shark_short/breakdown_short/retest_short are unaffected either way.
+        # NOT applied to wyckoff_long/wyckoff_short below: that path has no
+        # regime_gate of its own, so side_long_ok/side_short_ok is the ONLY
+        # HTF direction check there and stays load-bearing.
 
         # ==========================================
         # WYCKOFF SPRING/TEST (experimental, see ENABLE_WYCKOFF_ENTRY above
