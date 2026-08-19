@@ -1,0 +1,230 @@
+2026-06-21 21:03:42,298 - freqtrade - INFO - freqtrade 2026.3-dev-372350a8c
+2026-06-21 21:03:42,441 - numexpr.utils - INFO - Note: NumExpr detected 24 cores but "NUMEXPR_MAX_THREADS" not set, so enforcing safe limit of 16.
+2026-06-21 21:03:42,441 - numexpr.utils - INFO - NumExpr defaulting to 16 threads.
+2026-06-21 21:03:43,496 - freqtrade.configuration.load_config - INFO - Using config: user_data/strategies/WolfStrategyV1/config.json ...
+2026-06-21 21:03:43,498 - freqtrade.loggers - INFO - Enabling colorized output.
+2026-06-21 21:03:43,498 - freqtrade.loggers - INFO - Logfile configured
+2026-06-21 21:03:43,498 - freqtrade.loggers - INFO - Verbosity set to 0
+2026-06-21 21:03:43,499 - freqtrade.configuration.configuration - INFO - Using additional Strategy lookup path: user_data/strategies/WolfStrategyV1
+2026-06-21 21:03:43,546 - freqtrade.configuration.configuration - WARNING - `force_entry_enable` RPC message enabled.
+2026-06-21 21:03:43,547 - freqtrade.configuration.configuration - INFO - Parameter -i/--timeframe detected ... Using timeframe: 1h ...
+2026-06-21 21:03:43,547 - freqtrade.configuration.configuration - INFO - Using max_open_trades: 3 ...
+2026-06-21 21:03:43,547 - freqtrade.configuration.configuration - INFO - Parameter --timerange detected: 20251101-20260619 ...
+2026-06-21 21:03:43,548 - freqtrade.configuration.configuration - INFO - Using user-data directory: D:\PYTHON\freqtrade\user_data ...
+2026-06-21 21:03:43,548 - freqtrade.configuration.configuration - INFO - Using data directory: D:\PYTHON\freqtrade\user_data\data\binance ...
+2026-06-21 21:03:43,548 - freqtrade.configuration.configuration - INFO - Parameter --cache=none detected ...
+2026-06-21 21:03:43,549 - freqtrade.configuration.configuration - INFO - Filter trades by timerange: 20251101-20260619
+2026-06-21 21:03:43,549 - freqtrade.exchange.check_exchange - INFO - Checking exchange...
+2026-06-21 21:03:43,555 - freqtrade.exchange.check_exchange - INFO - Exchange "binance" is officially supported by the Freqtrade development team.
+2026-06-21 21:03:43,555 - freqtrade.configuration.configuration - INFO - Using pairlist from configuration.
+2026-06-21 21:03:43,556 - freqtrade.configuration.config_validation - INFO - Validating configuration ...
+2026-06-21 21:03:43,557 - freqtrade.commands.optimize_commands - INFO - Starting freqtrade in Backtesting mode
+2026-06-21 21:03:43,560 - freqtrade.exchange.exchange - INFO - Instance is running with dry_run enabled
+2026-06-21 21:03:43,560 - freqtrade.exchange.exchange - INFO - Using CCXT 4.5.44
+2026-06-21 21:03:43,560 - freqtrade.exchange.exchange - INFO - Applying additional ccxt config: {'options': {'defaultType': 'swap'}, 'enableRateLimit': True}
+2026-06-21 21:03:43,564 - freqtrade.exchange.exchange - INFO - Applying additional ccxt config: {'options': {'defaultType': 'swap'}, 'enableRateLimit': True, 'rateLimit': 200}
+2026-06-21 21:03:43,569 - freqtrade.exchange.exchange - INFO - Using Exchange "Binance"
+2026-06-21 21:03:45,139 - freqtrade.resolvers.exchange_resolver - INFO - Using resolved exchange 'Binance'...
+2026-06-21 21:03:45,161 - freqtrade.resolvers.iresolver - INFO - Using resolved strategy WolfStrategy from 'D:\PYTHON\freqtrade\user_data\strategies\WolfStrategyV1\WolfStrategy.py'...
+2026-06-21 21:03:45,161 - freqtrade.strategy.hyper - INFO - Found no parameter file.
+2026-06-21 21:03:45,162 - freqtrade.resolvers.strategy_resolver - INFO - Override strategy 'timeframe' with value from the configuration: 1h.
+2026-06-21 21:03:45,162 - freqtrade.resolvers.strategy_resolver - INFO - Override strategy 'order_types' with value from the configuration: {'entry': 'market', 'exit': 'market', 'emergency_exit': 
+'market', 'force_exit': 'market', 'force_entry': 'market', 'stoploss': 'market', 'stoploss_on_exchange': False}.
+2026-06-21 21:03:45,162 - freqtrade.resolvers.strategy_resolver - INFO - Override strategy 'stake_currency' with value from the configuration: USDT.
+2026-06-21 21:03:45,163 - freqtrade.resolvers.strategy_resolver - INFO - Override strategy 'stake_amount' with value from the configuration: unlimited.
+2026-06-21 21:03:45,163 - freqtrade.resolvers.strategy_resolver - INFO - Override strategy 'unfilledtimeout' with value from the configuration: {'entry': 5, 'exit': 5, 'exit_timeout_count': 0, 'unit':
+'minutes'}.
+2026-06-21 21:03:45,163 - freqtrade.resolvers.strategy_resolver - INFO - Override strategy 'max_open_trades' with value from the configuration: 3.
+2026-06-21 21:03:45,163 - freqtrade.resolvers.strategy_resolver - INFO - Strategy using minimal_roi: {}
+2026-06-21 21:03:45,164 - freqtrade.resolvers.strategy_resolver - INFO - Strategy using timeframe: 1h
+2026-06-21 21:03:45,164 - freqtrade.resolvers.strategy_resolver - INFO - Strategy using stoploss: -0.99
+2026-06-21 21:03:45,164 - freqtrade.resolvers.strategy_resolver - INFO - Strategy using trailing_stop: False
+2026-06-21 21:03:45,164 - freqtrade.resolvers.strategy_resolver - INFO - Strategy using trailing_stop_positive_offset: 0.0
+2026-06-21 21:03:45,164 - freqtrade.resolvers.strategy_resolver - INFO - Strategy using trailing_only_offset_is_reached: False
+2026-06-21 21:03:45,165 - freqtrade.resolvers.strategy_resolver - INFO - Strategy using use_custom_stoploss: True
+2026-06-21 21:03:45,165 - freqtrade.resolvers.strategy_resolver - INFO - Strategy using process_only_new_candles: True
+2026-06-21 21:03:45,165 - freqtrade.resolvers.strategy_resolver - INFO - Strategy using order_types: {'entry': 'market', 'exit': 'market', 'emergency_exit': 'market', 'force_exit': 'market', 
+'force_entry': 'market', 'stoploss': 'market', 'stoploss_on_exchange': False}
+2026-06-21 21:03:45,165 - freqtrade.resolvers.strategy_resolver - INFO - Strategy using order_time_in_force: {'entry': 'GTC', 'exit': 'GTC'}
+2026-06-21 21:03:45,165 - freqtrade.resolvers.strategy_resolver - INFO - Strategy using stake_currency: USDT
+2026-06-21 21:03:45,166 - freqtrade.resolvers.strategy_resolver - INFO - Strategy using stake_amount: unlimited
+2026-06-21 21:03:45,166 - freqtrade.resolvers.strategy_resolver - INFO - Strategy using startup_candle_count: 1300
+2026-06-21 21:03:45,166 - freqtrade.resolvers.strategy_resolver - INFO - Strategy using unfilledtimeout: {'entry': 5, 'exit': 5, 'exit_timeout_count': 0, 'unit': 'minutes'}
+2026-06-21 21:03:45,166 - freqtrade.resolvers.strategy_resolver - INFO - Strategy using use_exit_signal: True
+2026-06-21 21:03:45,166 - freqtrade.resolvers.strategy_resolver - INFO - Strategy using exit_profit_only: False
+2026-06-21 21:03:45,166 - freqtrade.resolvers.strategy_resolver - INFO - Strategy using ignore_roi_if_entry_signal: False
+2026-06-21 21:03:45,167 - freqtrade.resolvers.strategy_resolver - INFO - Strategy using exit_profit_offset: 0.0
+2026-06-21 21:03:45,167 - freqtrade.resolvers.strategy_resolver - INFO - Strategy using disable_dataframe_checks: False
+2026-06-21 21:03:45,167 - freqtrade.resolvers.strategy_resolver - INFO - Strategy using ignore_buying_expired_candle_after: 0
+2026-06-21 21:03:45,167 - freqtrade.resolvers.strategy_resolver - INFO - Strategy using position_adjustment_enable: False
+2026-06-21 21:03:45,167 - freqtrade.resolvers.strategy_resolver - INFO - Strategy using max_entry_position_adjustment: -1
+2026-06-21 21:03:45,168 - freqtrade.resolvers.strategy_resolver - INFO - Strategy using max_open_trades: 3
+2026-06-21 21:03:45,168 - freqtrade.configuration.config_validation - INFO - Validating configuration ...
+2026-06-21 21:03:45,173 - freqtrade.resolvers.iresolver - INFO - Using resolved pairlist StaticPairList from 'D:\PYTHON\freqtrade\freqtrade\plugins\pairlist\StaticPairList.py'...
+2026-06-21 21:03:45,177 - freqtrade.optimize.backtesting - INFO - Using fee 0.0500% - worst case fee from exchange (lowest tier).
+2026-06-21 21:03:45,178 - freqtrade.exchange.exchange - WARNING - Using 3 calls to get OHLCV. This can result in slower operations for the bot. Please check if you really need 1300 candles for your 
+strategy.
+2026-06-21 21:03:45,206 - freqtrade.data.history.datahandlers.idatahandler - WARNING - BTC/USDT:USDT, futures, 1h, data starts at 2025-11-01 00:00:00
+2026-06-21 21:03:45,225 - freqtrade.optimize.backtesting - INFO - Loading data from 2025-09-07 20:00:00 up to 2026-06-19 00:00:00 (284 days).
+2026-06-21 21:03:45,313 - freqtrade.optimize.backtesting - INFO - Dataload complete. Calculating indicators
+2026-06-21 21:03:45,314 - freqtrade.optimize.backtesting - INFO - Running backtesting for Strategy WolfStrategy
+2026-06-21 21:03:45,315 - freqtrade.data.dataprovider - INFO - Loading data for BTC/USDT:USDT 1d from 2022-04-11 00:00:00 to 2026-06-19 00:00:00
+2026-06-21 21:03:45,318 - freqtrade.data.history.datahandlers.idatahandler - WARNING - BTC/USDT:USDT, futures, 1d, data starts at 2025-01-01 00:00:00
+2026-06-21 21:03:45,318 - freqtrade.data.history.datahandlers.idatahandler - WARNING - BTC/USDT:USDT, futures, 1d, data ends at 2026-06-18 00:00:00
+D:\PYTHON\freqtrade\freqtrade\strategy\strategy_helper.py:109: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
+  ].fillna(matching_informative_raws.iloc[-1])
+2026-06-21 21:03:45,330 - freqtrade.data.dataprovider - INFO - Loading data for BTC/USDT:USDT 4h from 2025-03-29 08:00:00 to 2026-06-19 00:00:00
+2026-06-21 21:03:45,333 - freqtrade.data.history.datahandlers.idatahandler - WARNING - BTC/USDT:USDT, futures, 4h, data starts at 2025-06-01 00:00:00
+D:\PYTHON\freqtrade\freqtrade\strategy\strategy_helper.py:109: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
+  ].fillna(matching_informative_raws.iloc[-1])
+2026-06-21 21:03:45,348 - freqtrade.data.dataprovider - INFO - Loading data for BTC/USDT:USDT 1h from 2025-09-07 20:00:00 to 2026-06-19 00:00:00
+2026-06-21 21:03:45,352 - freqtrade.data.history.datahandlers.idatahandler - WARNING - BTC/USDT:USDT, futures, 1h, data starts at 2025-11-01 00:00:00
+2026-06-21 21:03:45,374 - WolfStrategy - WARNING - [V7 SMC] BTC/USDT:USDT | 4H: BEAR | Sweep15m: - | BOS: - | RSI=39 ADX=30 Vol=0.3x
+2026-06-21 21:03:45,377 - freqtrade.data.dataprovider - INFO - Loading data for ETH/USDT:USDT 1d from 2022-04-11 00:00:00 to 2026-06-19 00:00:00
+2026-06-21 21:03:45,381 - freqtrade.data.history.datahandlers.idatahandler - WARNING - ETH/USDT:USDT, futures, 1d, data starts at 2025-01-01 00:00:00
+2026-06-21 21:03:45,381 - freqtrade.data.history.datahandlers.idatahandler - WARNING - ETH/USDT:USDT, futures, 1d, data ends at 2026-06-18 00:00:00
+D:\PYTHON\freqtrade\freqtrade\strategy\strategy_helper.py:109: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
+  ].fillna(matching_informative_raws.iloc[-1])
+2026-06-21 21:03:45,392 - freqtrade.data.dataprovider - INFO - Loading data for ETH/USDT:USDT 4h from 2025-03-29 08:00:00 to 2026-06-19 00:00:00
+D:\PYTHON\freqtrade\freqtrade\strategy\strategy_helper.py:109: FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated and will change in a future version. Call result.infer_objects(copy=False) instead. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
+  ].fillna(matching_informative_raws.iloc[-1])
+2026-06-21 21:03:45,410 - freqtrade.data.dataprovider - INFO - Loading data for ETH/USDT:USDT 1h from 2025-09-07 20:00:00 to 2026-06-19 00:00:00
+2026-06-21 21:03:45,439 - WolfStrategy - WARNING - [V7 SMC] ETH/USDT:USDT | 4H: BULL | Sweep15m: - | BOS: - | RSI=45 ADX=28 Vol=0.3x
+2026-06-21 21:03:45,445 - freqtrade.optimize.backtesting - INFO - Backtesting with data from 2025-11-01 00:00:00 up to 2026-06-19 00:00:00 (230 days).
+2026-06-21 21:03:45,585 - WolfStrategy - WARNING - [V9.0] ETH/USDT:USDT SHORT emergency: 4H bullish, RSI=50
+2026-06-21 21:03:46,511 - WolfStrategy - WARNING - [V9.0] BTC/USDT:USDT SHORT emergency: 4H bullish, RSI=47
+2026-06-21 21:03:46,651 - WolfStrategy - WARNING - [V9.0] ETH/USDT:USDT SHORT emergency: 4H bullish, RSI=60
+2026-06-21 21:03:46,674 - WolfStrategy - WARNING - [V9.0] BTC/USDT:USDT SHORT emergency: 4H bullish, RSI=62
+2026-06-21 21:03:46,682 - WolfStrategy - WARNING - [V9.0] BTC/USDT:USDT SHORT emergency: 4H bullish, RSI=51
+2026-06-21 21:03:47,983 - WolfStrategy - WARNING - [V9.0] BTC/USDT:USDT SHORT emergency: 4H bullish, RSI=60
+2026-06-21 21:03:48,295 - freqtrade.misc - INFO - dumping json to "D:\PYTHON\freqtrade\user_data\backtest_results\backtest-result-2026-06-21_21-03-48.meta.json"
+Result for strategy WolfStrategy
+                                                 BACKTESTING REPORT                                                  
++-------------------------------------------------------------------------------------------------------------------+
+|          Pair | Trades | Avg Profit % | Tot Profit USDT | Tot Profit % |    Avg Duration |  Win  Draw  Loss  Win% |
+|---------------+--------+--------------+-----------------+--------------+-----------------+------------------------|
+| ETH/USDT:USDT |     25 |         4.41 |         387.066 |        38.71 | 1 day, 14:10:00 |   13     0    12  52.0 |
+| BTC/USDT:USDT |     20 |          4.2 |         297.144 |        29.71 | 2 days, 7:03:00 |   10     0    10  50.0 |
+|         TOTAL |     45 |         4.31 |         684.209 |        68.42 | 1 day, 21:40:00 |   23     0    22  51.1 |
++-------------------------------------------------------------------------------------------------------------------+
+                                         LEFT OPEN TRADES REPORT                                          
++--------------------------------------------------------------------------------------------------------+
+|  Pair | Trades | Avg Profit % | Tot Profit USDT | Tot Profit % | Avg Duration |  Win  Draw  Loss  Win% |
+|-------+--------+--------------+-----------------+--------------+--------------+------------------------|
+| TOTAL |      0 |          0.0 |           0.000 |          0.0 |         0:00 |    0     0     0     0 |
++--------------------------------------------------------------------------------------------------------+
+                                                      ENTER TAG STATS                                                       
++--------------------------------------------------------------------------------------------------------------------------+
+|          Enter Tag | Entries | Avg Profit % | Tot Profit USDT | Tot Profit % |     Avg Duration |  Win  Draw  Loss  Win% |
+|--------------------+---------+--------------+-----------------+--------------+------------------+------------------------|
+|     shark_short_1h |      23 |         7.38 |         649.120 |        64.91 |  1 day, 18:57:00 |   14     0     9  60.9 |
+| breakdown_short_1h |      11 |         4.38 |         155.100 |        15.51 |  1 day, 11:44:00 |    5     0     6  45.5 |
+|      shark_long_1h |      11 |        -2.16 |        -120.011 |        -12.0 | 2 days, 13:16:00 |    4     0     7  36.4 |
+|              TOTAL |      45 |         4.31 |         684.209 |        68.42 |  1 day, 21:40:00 |   23     0    22  51.1 |
++--------------------------------------------------------------------------------------------------------------------------+
+                                                       EXIT REASON STATS                                                       
++-----------------------------------------------------------------------------------------------------------------------------+
+|              Exit Reason | Exits | Avg Profit % | Tot Profit USDT | Tot Profit % |    Avg Duration |  Win  Draw  Loss  Win% |
+|--------------------------+-------+--------------+-----------------+--------------+-----------------+------------------------|
+|         target_25pct_roi |     9 |        27.62 |        1063.646 |       106.36 | 1 day, 12:00:00 |    9     0     0   100 |
+|        smc_oversold_exit |     3 |         21.8 |         322.876 |        32.29 | 2 days, 0:40:00 |    3     0     0   100 |
+| smc_sm_accumulation_exit |     4 |        14.82 |         257.575 |        25.76 | 1 day, 13:45:00 |    4     0     0   100 |
+|          long_target_roi |     2 |        22.18 |         222.164 |        22.22 | 5 days, 6:00:00 |    2     0     0   100 |
+|    long_overbought_early |     2 |        16.26 |         146.698 |        14.67 | 2 days, 7:00:00 |    2     0     0   100 |
+|     smc_rsi_extreme_exit |     2 |        16.93 |         111.168 |        11.12 | 2 days, 2:00:00 |    2     0     0   100 |
+|   smc_4h_trend_flip_exit |     1 |        10.43 |          58.901 |         5.89 | 7 days, 1:00:00 |    1     0     0   100 |
+|       smc_emergency_exit |     6 |        -8.44 |        -254.544 |       -25.45 |        21:40:00 |    0     0     6     0 |
+|            fast_timestop |     7 |       -14.72 |        -473.915 |       -47.39 | 2 days, 8:26:00 |    0     0     7     0 |
+|       trailing_stop_loss |     9 |       -16.29 |        -770.359 |       -77.04 |  1 day, 6:53:00 |    0     0     9     0 |
+|                    TOTAL |    45 |         4.31 |         684.209 |        68.42 | 1 day, 21:40:00 |   23     0    22  51.1 |
++-----------------------------------------------------------------------------------------------------------------------------+
+                                                                   MIXED TAG STATS                                                                    
++----------------------------------------------------------------------------------------------------------------------------------------------------+
+|          Enter Tag |              Exit Reason | Trades | Avg Profit % | Tot Profit USDT | Tot Profit % |     Avg Duration |  Win  Draw  Loss  Win% |
+|--------------------+--------------------------+--------+--------------+-----------------+--------------+------------------+------------------------|
+|     shark_short_1h |         target_25pct_roi |      6 |         28.6 |         720.929 |        72.09 |  1 day, 16:00:00 |    6     0     0   100 |
+| breakdown_short_1h |         target_25pct_roi |      3 |        25.67 |         342.717 |        34.27 |   1 day, 4:00:00 |    3     0     0   100 |
+|     shark_short_1h | smc_sm_accumulation_exit |      4 |        14.82 |         257.575 |        25.76 |  1 day, 13:45:00 |    4     0     0   100 |
+|     shark_short_1h |        smc_oversold_exit |      2 |        22.57 |         241.143 |        24.11 |  3 days, 0:00:00 |    2     0     0   100 |
+|      shark_long_1h |          long_target_roi |      2 |        22.18 |         222.164 |        22.22 |  5 days, 6:00:00 |    2     0     0   100 |
+|      shark_long_1h |    long_overbought_early |      2 |        16.26 |         146.698 |        14.67 |  2 days, 7:00:00 |    2     0     0   100 |
+|     shark_short_1h |     smc_rsi_extreme_exit |      2 |        16.93 |         111.168 |        11.12 |  2 days, 2:00:00 |    2     0     0   100 |
+| breakdown_short_1h |        smc_oversold_exit |      1 |        20.26 |          81.733 |         8.17 |          2:00:00 |    1     0     0   100 |
+| breakdown_short_1h |   smc_4h_trend_flip_exit |      1 |        10.43 |          58.901 |         5.89 |  7 days, 1:00:00 |    1     0     0   100 |
+| breakdown_short_1h |       trailing_stop_loss |      1 |       -13.68 |         -74.702 |        -7.47 |         12:00:00 |    0     0     1     0 |
+| breakdown_short_1h |       smc_emergency_exit |      3 |        -6.01 |         -81.800 |        -8.18 |          3:00:00 |    0     0     3     0 |
+|      shark_long_1h |            fast_timestop |      2 |        -12.8 |         -91.384 |        -9.14 | 2 days, 14:00:00 |    0     0     2     0 |
+| breakdown_short_1h |            fast_timestop |      2 |       -13.91 |        -171.750 |       -17.18 | 2 days, 10:30:00 |    0     0     2     0 |
+|     shark_short_1h |       smc_emergency_exit |      3 |       -10.87 |        -172.744 |       -17.27 |  1 day, 16:20:00 |    0     0     3     0 |
+|     shark_short_1h |            fast_timestop |      3 |       -16.54 |        -210.781 |       -21.08 |  2 days, 3:20:00 |    0     0     3     0 |
+|     shark_short_1h |       trailing_stop_loss |      3 |       -19.31 |        -298.169 |       -29.82 |   1 day, 2:00:00 |    0     0     3     0 |
+|      shark_long_1h |       trailing_stop_loss |      5 |        -15.0 |        -397.488 |       -39.75 |  1 day, 13:36:00 |    0     0     5     0 |
+|              TOTAL |                          |     45 |         4.31 |         684.209 |        68.42 |  1 day, 21:40:00 |   23     0    22  51.1 |
++----------------------------------------------------------------------------------------------------------------------------------------------------+
+                         SUMMARY METRICS                          
++----------------------------------------------------------------+
+| Metric                        | Value                          |
+|-------------------------------+--------------------------------|
+| Backtesting from              | 2025-11-01 00:00:00            |
+| Backtesting to                | 2026-06-19 00:00:00            |
+| Trading Mode                  | Isolated Futures               |
+| Max open trades               | 2                              |
+|                               |                                |
+| Total/Daily Avg Trades        | 45 / 0.2                       |
+| Starting balance              | 1000 USDT                      |
+| Final balance                 | 1684.209 USDT                  |
+| Absolute profit               | 684.209 USDT                   |
+| Total profit %                | 68.42%                         |
+| CAGR %                        | 128.71%                        |
+| Sortino                       | 1.99                           |
+| Sharpe                        | 0.66                           |
+| Calmar                        | 24.42                          |
+| SQN                           | 1.16                           |
+| Profit factor                 | 1.46                           |
+| Expectancy (Ratio)            | 15.20 (0.22)                   |
+| Avg. daily profit             | 2.975 USDT                     |
+| Avg. stake amount             | 470.654 USDT                   |
+| Total trade volume            | 210928.06 USDT                 |
+|                               |                                |
+| Long / Short trades           | 11 / 34                        |
+| Long / Short profit %         | -12.00% / 80.42%               |
+| Long / Short profit USDT      | -120.011 / 804.220             |
+|                               |                                |
+| Best Pair                     | ETH/USDT:USDT 38.71%           |
+| Worst Pair                    | BTC/USDT:USDT 29.71%           |
+| Best trade                    | ETH/USDT:USDT 37.01%           |
+| Worst trade                   | ETH/USDT:USDT -24.77%          |
+| Best day                      | 232.754 USDT                   |
+| Worst day                     | -146.469 USDT                  |
+| Days win/draw/lose            | 20 / 182 / 20                  |
+| Min/Max/Avg. Duration Winners | 0d 02:00 / 7d 22:00 / 2d 06:26 |
+| Min/Max/Avg. Duration Losers  | 0d 02:00 / 3d 11:00 / 1d 12:30 |
+| Max Consecutive Wins / Loss   | 6 / 6                          |
+| Rejected Entry signals        | 0                              |
+| Entry/Exit Timeouts           | 0 / 0                          |
+|                               |                                |
+| Min balance                   | 1014.091 USDT                  |
+| Max balance                   | 1916.65 USDT                   |
+| Max % of account underwater   | 23.27%                         |
+| Absolute drawdown             | 418.619 USDT (23.27%)          |
+| Drawdown duration             | 44 days 03:00:00               |
+| Profit at drawdown start      | 798.625 USDT                   |
+| Profit at drawdown end        | 380.006 USDT                   |
+| Drawdown start                | 2026-02-22 15:00:00            |
+| Drawdown end                  | 2026-04-07 18:00:00            |
+| Market change                 | -49.01%                        |
++----------------------------------------------------------------+
+
+Backtested 2025-11-01 00:00:00 -> 2026-06-19 00:00:00 | Max open trades : 2
+                                                             STRATEGY SUMMARY                                                              
++-----------------------------------------------------------------------------------------------------------------------------------------+
+|     Strategy | Trades | Avg Profit % | Tot Profit USDT | Tot Profit % |    Avg Duration |  Win  Draw  Loss  Win% |             Drawdown |
+|--------------+--------+--------------+-----------------+--------------+-----------------+------------------------+----------------------|
+| WolfStrategy |     45 |         4.31 |         684.209 |        68.42 | 1 day, 21:40:00 |   23     0    22  51.1 | 418.619 USDT  23.27% |
++-----------------------------------------------------------------------------------------------------------------------------------------+
+2026-06-21 21:03:48,434 - ccxt.base.exchange - WARNING - binance requires to release all resources with an explicit call to the .close() coroutine. If you are using the exchange instance with async 
+coroutines, add `await exchange.close()` to your code into a place when you're done with the exchange and don't need the exchange instance anymore (at the end of your async coroutine).
+2026-06-21 21:03:48,435 - asyncio - ERROR - Unclosed connector
+connections: ['deque([(<aiohttp.client_proto.ResponseHandler object at 0x0000015099DBA450>, 49857.8976694)])', 'deque([(<aiohttp.client_proto.ResponseHandler object at 0x0000015099E222D0>, 
+49858.3609631)])', 'deque([(<aiohttp.client_proto.ResponseHandler object at 0x0000015099E22B70>, 49858.623589)])']
+connector: <aiohttp.connector.TCPConnector object at 0x0000015099EC1FD0>

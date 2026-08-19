@@ -1,0 +1,102 @@
+{
+  "current": {
+    "W1_bear2026": {
+      "profit_pct": 3.2,
+      "pf": 3.58,
+      "dd_pct": 0.5,
+      "trades": 10,
+      "wins": 7,
+      "deep_losers": 1,
+      "trades_per_month": 1.65
+    },
+    "W2_bull2025": {
+      "profit_pct": 0.1,
+      "pf": 1.05,
+      "dd_pct": 0.6,
+      "trades": 5,
+      "wins": 2,
+      "deep_losers": 1,
+      "trades_per_month": 0.99
+    }
+  },
+  "no_vetoes": {
+    "W1_bear2026": {
+      "profit_pct": 4.2,
+      "pf": 2.15,
+      "dd_pct": 1.0,
+      "trades": 24,
+      "wins": 13,
+      "deep_losers": 4,
+      "trades_per_month": 3.95
+    },
+    "W2_bull2025": {
+      "profit_pct": 1.1,
+      "pf": 1.24,
+      "dd_pct": 2.0,
+      "trades": 21,
+      "wins": 10,
+      "deep_losers": 2,
+      "trades_per_month": 4.17
+    }
+  },
+  "allow_both_pairs": {
+    "W1_bear2026": {
+      "profit_pct": 2.7,
+      "pf": 2.39,
+      "dd_pct": 1.0,
+      "trades": 13,
+      "wins": 8,
+      "deep_losers": 1,
+      "trades_per_month": 2.14
+    },
+    "W2_bull2025": {
+      "profit_pct": 0.1,
+      "pf": 1.05,
+      "dd_pct": 0.6,
+      "trades": 5,
+      "wins": 2,
+      "deep_losers": 1,
+      "trades_per_month": 0.99
+    }
+  },
+  "chase_breakdown": {
+    "W1_bear2026": {
+      "profit_pct": 3.2,
+      "pf": 3.39,
+      "dd_pct": 1.0,
+      "trades": 10,
+      "wins": 7,
+      "deep_losers": 1,
+      "trades_per_month": 1.65
+    },
+    "W2_bull2025": {
+      "profit_pct": -0.9,
+      "pf": 0.55,
+      "dd_pct": 0.9,
+      "trades": 7,
+      "wins": 2,
+      "deep_losers": 2,
+      "trades_per_month": 1.39
+    }
+  },
+  "aggressive_all": {
+    "W1_bear2026": {
+      "profit_pct": 2.4,
+      "pf": 1.31,
+      "dd_pct": 2.3,
+      "trades": 40,
+      "wins": 19,
+      "deep_losers": 9,
+      "trades_per_month": 6.59
+    },
+    "W2_bull2025": {
+      "profit_pct": -0.8,
+      "pf": 0.88,
+      "dd_pct": 2.7,
+      "trades": 26,
+      "wins": 10,
+      "deep_losers": 6,
+      "trades_per_month": 5.17
+    }
+  }
+}

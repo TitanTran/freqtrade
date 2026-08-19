@@ -1,0 +1,101 @@
+{
+  "baseline_off": {
+    "W1_bear2026": {
+      "profit_pct": 3.2,
+      "pf": 3.58,
+      "dd_pct": 0.5,
+      "trades": 10,
+      "wins": 7,
+      "losses": 3,
+      "deep_losers": 1,
+      "tags": {
+        "shark_short_1h": 6,
+        "retest_short_1h": 1,
+        "shark_long_1h": 3
+      },
+      "zip": "backtest-result-2026-07-23_21-08-18.zip"
+    },
+    "W2_bull2025": {
+      "profit_pct": 0.1,
+      "pf": 1.05,
+      "dd_pct": 0.6,
+      "trades": 5,
+      "wins": 2,
+      "losses": 3,
+      "deep_losers": 1,
+      "tags": {
+        "retest_short_1h": 2,
+        "shark_short_1h": 1,
+        "shark_long_1h": 2
+      },
+      "zip": "backtest-result-2026-07-23_21-08-22.zip"
+    },
+    "W3_oos2026": {
+      "profit_pct": 2.7,
+      "pf": 1.8,
+      "dd_pct": 1.0,
+      "trades": 18,
+      "wins": 9,
+      "losses": 9,
+      "deep_losers": 6,
+      "tags": {
+        "shark_short_1h": 9,
+        "retest_short_1h": 6,
+        "shark_long_1h": 3
+      },
+      "zip": "backtest-result-2026-07-23_21-08-29.zip"
+    }
+  },
+  "swing_on": {
+    "W1_bear2026": {
+      "profit_pct": -0.3,
+      "pf": 0.95,
+      "dd_pct": 3.2,
+      "trades": 33,
+      "wins": 14,
+      "losses": 19,
+      "deep_losers": 9,
+      "tags": {
+        "swing_break_long_4h": 12,
+        "shark_short_1h": 5,
+        "swing_break_short_4h": 14,
+        "retest_short_1h": 1,
+        "shark_long_1h": 1
+      },
+      "zip": "backtest-result-2026-07-23_21-08-35.zip"
+    },
+    "W2_bull2025": {
+      "profit_pct": 0.2,
+      "pf": 1.03,
+      "dd_pct": 1.8,
+      "trades": 29,
+      "wins": 12,
+      "losses": 17,
+      "deep_losers": 4,
+      "tags": {
+        "swing_break_long_4h": 17,
+        "swing_break_short_4h": 9,
+        "shark_short_1h": 1,
+        "shark_long_1h": 1,
+        "retest_short_1h": 1
+      },
+      "zip": "backtest-result-2026-07-23_21-08-41.zip"
+    },
+    "W3_oos2026": {
+      "profit_pct": -0.9,
+      "pf": 0.93,
+      "dd_pct": 4.3,
+      "trades": 57,
+      "wins": 22,
+      "losses": 35,
+      "deep_losers": 19,
+      "tags": {
+        "swing_break_short_4h": 30,
+        "swing_break_long_4h": 17,
+        "shark_short_1h": 7,
+        "retest_short_1h": 3
+      },
+      "zip": "backtest-result-2026-07-23_21-08-49.zip"
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "baseline_1d_and_4h": {
+    "W1_bear2026": {
+      "profit_pct": 3.9,
+      "pf": 2.03,
+      "dd_pct": 1.4,
+      "trades": 25,
+      "deep_losers": 5,
+      "trades_per_month": 4.12
+    },
+    "W2_bull2025": {
+      "profit_pct": 4.6,
+      "pf": 2.16,
+      "dd_pct": 1.9,
+      "trades": 22,
+      "deep_losers": 2,
+      "trades_per_month": 4.37
+    }
+  },
+  "drop_1d_gate": {
+    "W1_bear2026": {
+      "profit_pct": 1.3,
+      "pf": 1.26,
+      "dd_pct": 2.6,
+      "trades": 27,
+      "deep_losers": 8,
+      "trades_per_month": 4.45
+    },
+    "W2_bull2025": {
+      "profit_pct": 3.3,
+      "pf": 1.56,
+      "dd_pct": 2.3,
+      "trades": 28,
+      "deep_losers": 3,
+      "trades_per_month": 5.57
+    }
+  }
+}

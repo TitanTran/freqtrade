@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wolf Strategy V5.90 - Post-Mortem Analysis</title>
+    <link rel="stylesheet" href="index.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Wolf Strategy V5.90</h1>
+            <div class="subtitle">Diagnostic Report & Logic Analysis | April 27, 2026</div>
+        </header>
+
+        <div class="status-badge status-error">
+            <i class="fas fa-exclamation-triangle"></i> CRITICAL DRAWDOWN DETECTED: -20.64% (69.141 USDT)
+        </div>
+
+        <div class="dashboard-grid">
+            <!-- Trade #24 Analysis -->
+            <div class="card" style="animation-delay: 0.1s;">
+                <div class="card-title">
+                    <i class="fas fa-skull-crossbones"></i>
+                    Trade #24: The "Hold & Hope" Short
+                </div>
+                <div class="trade-log loss">
+                    <span class="tag tag-short">Short (5x)</span> BNB/USDT<br>
+                    Entry: 629.56 | Exit: 638.96<br>
+                    Loss: -7.94% | Duration: 1d 3h
+                </div>
+                <div class="analysis-point">
+                    <h3>The Flaw: Delayed Exit</h3>
+                    <p>The bot entered a short based on <code>precision_short_mfi</code>. When the market pumped, the bot stayed in the trade for over 24 hours because it was waiting for a 1H Trend Crossover to exit.</p>
+                </div>
+                <div class="code-block">
+                    <code>
+// exit_short_cond in WolfStrategy.py<br>
+exit_short_cond = (<br>
+&nbsp;&nbsp;(df["close"] > df["ema_50_1h"]) & <br>
+&nbsp;&nbsp;(df["ema_20_1h"] > df["ema_50_1h"])<br>
+)
+                    </code>
+                </div>
+                <p style="margin-top: 1rem; font-size: 0.85rem; color: var(--danger);">
+                    <b>Verdict:</b> The exit logic is too slow for 5x leverage. A 1.5% price move against you shouldn't take 24 hours to realize.
+                </p>
+            </div>
+
+            <!-- Trade #23 Analysis -->
+            <div class="card" style="animation-delay: 0.2s;">
+                <div class="card-title">
+                    <i class="fas fa-frown"></i>
+                    Trade #23: The "Falling Knife" Long
+                </div>
+                <div class="trade-log loss">
+                    <span class="tag tag-long">Long (5x)</span> BNB/USDT<br>
+                    Entry: 635.15 | Exit: 633.88<br>
+                    Loss: -1.50% | Duration: 90m
+                </div>
+                <div class="analysis-point">
+                    <h3>The Flaw: Volatility Trap</h3>
+                    <p>Triggered by <code>panic_bottom_sniper</code>. This logic enters on extreme volume spikes (>3x mean) below Bollinger Bands. On April 25, this spike wasn't a bottom, but a break of support.</p>
+                </div>
+                <div class="code-block">
+                    <code>
+long_panic_cond = (<br>
+&nbsp;&nbsp;(df["volume"] > df["volume_mean"] * 3) &<br>
+&nbsp;&nbsp;(df["low"] < df["bb_lowerband"]) &<br>
+&nbsp;&nbsp;(df["close"] > df["low"])<br>
+)
+                    </code>
+                </div>
+                <p style="margin-top: 1rem; font-size: 0.85rem; color: var(--text-secondary);">
+                    <b>Verdict:</b> High-risk counter-trend entry. Needs a "Strong Rebound" filter (e.g. RSI recovery) to avoid catching knives.
+                </p>
+            </div>
+
+            <!-- Summary Analysis -->
+            <div class="card" style="animation-delay: 0.3s; grid-column: span 2;">
+                <div class="card-title">
+                    <i class="fas fa-brain"></i>
+                    Why the Strategy is "Stupid" (Strategic Analysis)
+                </div>
+                <div class="dashboard-grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="analysis-point">
+                        <h3>1. The "Safety Net" is Too Low</h3>
+                        <p>The <code>stoploss</code> is set at <b>-12%</b> (-0.12). At 5x leverage, this is a <b>60% loss</b> of your margin. This isn't a stoploss; it's a liquidation buffer. It doesn't protect capital.</p>
+                    </div>
+                    <div class="analysis-point">
+                        <h3>2. Missing Profit Protection</h3>
+                        <p><code>trailing_stop</code> is <b>False</b>. Even if a trade goes into 3% profit, the bot won't secure it. It will wait for the slow 1H trend exit, often turning a winner into a loser.</p>
+                    </div>
+                    <div class="analysis-point">
+                        <h3>3. Conflicting Timeframes</h3>
+                        <p>You are scalping on <b>15m</b> but exiting on <b>1H</b> trends. By the time the 1H EMA 20 crosses EMA 50, the 15m price has already moved 2-4% away from your exit point.</p>
+                    </div>
+                    <div class="analysis-point">
+                        <h3>4. Low AI Conviction</h3>
+                        <p>In Trade #24, the FreqAI score was likely borderline. The strategy allows entries with scores <code>< -0.01</code>, which is very loose for a precision short.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Fix Roadmap -->
+            <div class="card" style="animation-delay: 0.4s; grid-column: span 2; border-color: var(--success);">
+                <div class="card-title" style="color: var(--success);">
+                    <i class="fas fa-tools"></i>
+                    Wolf Strategy V6.0 - Fix Roadmap
+                </div>
+                <ul class="recommendation-list">
+                    <li><b>Tighten Stoploss:</b> Reduce <code>stoploss</code> from -0.12 to <b>-0.03</b> (3%). At 5x, this limits loss to 15%.</li>
+                    <li><b>Enable Trailing Stop:</b> Set <code>trailing_stop = True</code> with a 1.5% offset to lock in gains.</li>
+                    <li><b>Emergency Custom Exit:</b> Add a logic in <code>custom_exit</code> to bail if the trade is down 2% and RSI is moving against the direction.</li>
+                    <li><b>Harmonize Timeframes:</b> Use 15m EMA crosses for exits instead of 1H to capture faster reversals.</li>
+                    <li><b>Volatility Filter:</b> Don't enter <code>panic_bottom_sniper</code> if the 4H trend is strongly bearish.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

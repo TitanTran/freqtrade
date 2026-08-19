@@ -1,0 +1,114 @@
+{
+  "baseline_50_17": {
+    "W1_bear2026": {
+      "profit_pct": 0.5,
+      "pf": 1.06,
+      "dd_pct": 3.3,
+      "trades": 29,
+      "trades_per_month": 4.04
+    },
+    "W2_bull2025": {
+      "profit_pct": 7.7,
+      "pf": 2.73,
+      "dd_pct": 1.2,
+      "trades": 25,
+      "trades_per_month": 4.97
+    }
+  },
+  "loose_a_45_17": {
+    "W1_bear2026": {
+      "profit_pct": -0.0,
+      "pf": 0.99,
+      "dd_pct": 3.3,
+      "trades": 30,
+      "trades_per_month": 4.18
+    },
+    "W2_bull2025": {
+      "profit_pct": 6.4,
+      "pf": 2.22,
+      "dd_pct": 1.0,
+      "trades": 27,
+      "trades_per_month": 5.37
+    }
+  },
+  "loose_b_40_17": {
+    "W1_bear2026": {
+      "profit_pct": -1.5,
+      "pf": 0.82,
+      "dd_pct": 3.7,
+      "trades": 30,
+      "trades_per_month": 4.18
+    },
+    "W2_bull2025": {
+      "profit_pct": 6.9,
+      "pf": 2.26,
+      "dd_pct": 1.2,
+      "trades": 27,
+      "trades_per_month": 5.37
+    }
+  },
+  "loose_c_50_14": {
+    "W1_bear2026": {
+      "profit_pct": 0.6,
+      "pf": 1.07,
+      "dd_pct": 3.3,
+      "trades": 29,
+      "trades_per_month": 4.04
+    },
+    "W2_bull2025": {
+      "profit_pct": 7.7,
+      "pf": 2.73,
+      "dd_pct": 1.2,
+      "trades": 25,
+      "trades_per_month": 4.97
+    }
+  },
+  "loose_d_45_14": {
+    "W1_bear2026": {
+      "profit_pct": 0.3,
+      "pf": 1.04,
+      "dd_pct": 3.3,
+      "trades": 31,
+      "trades_per_month": 4.32
+    },
+    "W2_bull2025": {
+      "profit_pct": 6.4,
+      "pf": 2.22,
+      "dd_pct": 1.0,
+      "trades": 27,
+      "trades_per_month": 5.37
+    }
+  },
+  "loose_e_40_12": {
+    "W1_bear2026": {
+      "profit_pct": -1.2,
+      "pf": 0.86,
+      "dd_pct": 3.7,
+      "trades": 32,
+      "trades_per_month": 4.46
+    },
+    "W2_bull2025": {
+      "profit_pct": 6.9,
+      "pf": 2.26,
+      "dd_pct": 1.2,
+      "trades": 27,
+      "trades_per_month": 5.37
+    }
+  },
+  "loose_f_35_12": {
+    "W1_bear2026": {
+      "profit_pct": -1.7,
+      "pf": 0.82,
+      "dd_pct": 3.7,
+      "trades": 33,
+      "trades_per_month": 4.6
+    },
+    "W2_bull2025": {
+      "profit_pct": 6.9,
+      "pf": 2.17,
+      "dd_pct": 1.3,
+      "trades": 28,
+      "trades_per_month": 5.57
+    }
+  }
+}

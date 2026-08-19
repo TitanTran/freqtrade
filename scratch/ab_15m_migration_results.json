@@ -1,0 +1,66 @@
+{
+  "baseline_1h": {
+    "W1_bear2026": {
+      "profit_pct": 3.2,
+      "pf": 3.58,
+      "dd_pct": 0.5,
+      "trades": 10,
+      "wins": 7,
+      "losses": 3,
+      "deep_losers": 1,
+      "zip": "backtest-result-2026-07-23_21-27-26.zip"
+    },
+    "W2_bull2025": {
+      "profit_pct": 0.1,
+      "pf": 1.05,
+      "dd_pct": 0.6,
+      "trades": 5,
+      "wins": 2,
+      "losses": 3,
+      "deep_losers": 1,
+      "zip": "backtest-result-2026-07-23_21-27-31.zip"
+    },
+    "W3_oos2026": {
+      "profit_pct": 2.7,
+      "pf": 1.8,
+      "dd_pct": 1.0,
+      "trades": 18,
+      "wins": 9,
+      "losses": 9,
+      "deep_losers": 6,
+      "zip": "backtest-result-2026-07-23_21-27-37.zip"
+    }
+  },
+  "migrated_15m": {
+    "W1_bear2026": {
+      "profit_pct": -0.6,
+      "pf": 0.81,
+      "dd_pct": 2.2,
+      "trades": 10,
+      "wins": 3,
+      "losses": 7,
+      "deep_losers": 0,
+      "zip": "backtest-result-2026-07-23_21-27-43.zip"
+    },
+    "W2_bull2025": {
+      "profit_pct": 0.7,
+      "pf": 1.58,
+      "dd_pct": 0.6,
+      "trades": 5,
+      "wins": 2,
+      "losses": 3,
+      "deep_losers": 0,
+      "zip": "backtest-result-2026-07-23_21-27-48.zip"
+    },
+    "W3_oos2026": {
+      "profit_pct": 6.4,
+      "pf": 1.77,
+      "dd_pct": 2.6,
+      "trades": 27,
+      "wins": 12,
+      "losses": 15,
+      "deep_losers": 3,
+      "zip": "backtest-result-2026-07-23_21-27-56.zip"
+    }
+  }
+}

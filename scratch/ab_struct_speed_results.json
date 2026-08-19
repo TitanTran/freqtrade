@@ -1,0 +1,98 @@
+{
+  "baseline_ema50_200": {
+    "W1_bear2026": {
+      "profit_pct": 45.0,
+      "pf": 1.93,
+      "dd_pct": 8.9,
+      "trades": 21,
+      "wins": 11,
+      "deep_losers": 4,
+      "avg_win_pct": 21.7,
+      "zip": "backtest-result-2026-07-05_20-27-37.zip"
+    },
+    "W2_bull2025": {
+      "profit_pct": 2.2,
+      "pf": 1.06,
+      "dd_pct": 17.4,
+      "trades": 21,
+      "wins": 9,
+      "deep_losers": 3,
+      "avg_win_pct": 14.2,
+      "zip": "backtest-result-2026-07-05_20-27-42.zip"
+    },
+    "W3_oos2026": {
+      "profit_pct": -37.3,
+      "pf": 0.73,
+      "dd_pct": 50.6,
+      "trades": 42,
+      "wins": 16,
+      "deep_losers": 22,
+      "avg_win_pct": 20.8,
+      "zip": "backtest-result-2026-07-05_20-27-49.zip"
+    }
+  },
+  "fast_ema20_50": {
+    "W1_bear2026": {
+      "profit_pct": 49.6,
+      "pf": 1.95,
+      "dd_pct": 12.7,
+      "trades": 23,
+      "wins": 12,
+      "deep_losers": 5,
+      "avg_win_pct": 21.3,
+      "zip": "backtest-result-2026-07-05_20-27-55.zip"
+    },
+    "W2_bull2025": {
+      "profit_pct": 7.2,
+      "pf": 1.17,
+      "dd_pct": 13.5,
+      "trades": 22,
+      "wins": 10,
+      "deep_losers": 3,
+      "avg_win_pct": 14.8,
+      "zip": "backtest-result-2026-07-05_20-28-00.zip"
+    },
+    "W3_oos2026": {
+      "profit_pct": -14.6,
+      "pf": 0.9,
+      "dd_pct": 38.5,
+      "trades": 37,
+      "wins": 17,
+      "deep_losers": 19,
+      "avg_win_pct": 21.1,
+      "zip": "backtest-result-2026-07-05_20-28-08.zip"
+    }
+  },
+  "chart_ema25_99": {
+    "W1_bear2026": {
+      "profit_pct": 66.8,
+      "pf": 2.35,
+      "dd_pct": 8.9,
+      "trades": 23,
+      "wins": 13,
+      "deep_losers": 4,
+      "avg_win_pct": 21.3,
+      "zip": "backtest-result-2026-07-05_20-28-14.zip"
+    },
+    "W2_bull2025": {
+      "profit_pct": 13.9,
+      "pf": 1.37,
+      "dd_pct": 13.6,
+      "trades": 21,
+      "wins": 10,
+      "deep_losers": 2,
+      "avg_win_pct": 14.8,
+      "zip": "backtest-result-2026-07-05_20-28-19.zip"
+    },
+    "W3_oos2026": {
+      "profit_pct": -17.6,
+      "pf": 0.89,
+      "dd_pct": 40.7,
+      "trades": 42,
+      "wins": 19,
+      "deep_losers": 20,
+      "avg_win_pct": 20.3,
+      "zip": "backtest-result-2026-07-05_20-28-26.zip"
+    }
+  }
+}

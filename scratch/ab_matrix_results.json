@@ -1,0 +1,37 @@
+{
+  "wide_lock_retest": {
+    "W1_bear2026": {
+      "profit_pct": 3.9,
+      "pf": 1.1,
+      "dd_pct": 10.4,
+      "trades": 31,
+      "wins": 19,
+      "deep_losers": 5,
+      "avg_win_pct": 6.7,
+      "lock_exits": 21,
+      "zip": "backtest-result-2026-07-02_11-37-33.zip"
+    },
+    "W2_bull2025": {
+      "profit_pct": -13.4,
+      "pf": 0.6,
+      "dd_pct": 17.9,
+      "trades": 21,
+      "wins": 10,
+      "deep_losers": 3,
+      "avg_win_pct": 6.4,
+      "lock_exits": 8,
+      "zip": "backtest-result-2026-07-02_11-37-38.zip"
+    },
+    "W3_oos2026": {
+      "profit_pct": -40.5,
+      "pf": 0.6,
+      "dd_pct": 45.8,
+      "trades": 56,
+      "wins": 34,
+      "deep_losers": 16,
+      "avg_win_pct": 6.0,
+      "lock_exits": 36,
+      "zip": "backtest-result-2026-07-02_11-37-45.zip"
+    }
+  }
+}

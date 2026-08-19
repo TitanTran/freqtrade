@@ -1,0 +1,92 @@
+{
+  "MAX_ATR=3.0": {
+    "W1_bear2026": {
+      "profit_pct": 3.2,
+      "pf": 3.58,
+      "dd_pct": 0.5,
+      "trades": 10,
+      "deep_losers": 1,
+      "trades_per_month": 1.65
+    },
+    "W2_bull2025": {
+      "profit_pct": 0.1,
+      "pf": 1.05,
+      "dd_pct": 0.6,
+      "trades": 5,
+      "deep_losers": 1,
+      "trades_per_month": 0.99
+    }
+  },
+  "MAX_ATR=4.0": {
+    "W1_bear2026": {
+      "profit_pct": 4.1,
+      "pf": 3.35,
+      "dd_pct": 0.7,
+      "trades": 14,
+      "deep_losers": 0,
+      "trades_per_month": 2.31
+    },
+    "W2_bull2025": {
+      "profit_pct": -1.3,
+      "pf": 0.61,
+      "dd_pct": 1.9,
+      "trades": 13,
+      "deep_losers": 3,
+      "trades_per_month": 2.58
+    }
+  },
+  "MAX_ATR=5.0": {
+    "W1_bear2026": {
+      "profit_pct": 3.5,
+      "pf": 2.1,
+      "dd_pct": 1.0,
+      "trades": 19,
+      "deep_losers": 3,
+      "trades_per_month": 3.13
+    },
+    "W2_bull2025": {
+      "profit_pct": -1.3,
+      "pf": 0.67,
+      "dd_pct": 1.9,
+      "trades": 15,
+      "deep_losers": 2,
+      "trades_per_month": 2.98
+    }
+  },
+  "MAX_ATR=6.0": {
+    "W1_bear2026": {
+      "profit_pct": 4.4,
+      "pf": 2.38,
+      "dd_pct": 1.0,
+      "trades": 21,
+      "deep_losers": 3,
+      "trades_per_month": 3.46
+    },
+    "W2_bull2025": {
+      "profit_pct": -0.4,
+      "pf": 0.91,
+      "dd_pct": 2.0,
+      "trades": 17,
+      "deep_losers": 2,
+      "trades_per_month": 3.38
+    }
+  },
+  "MAX_ATR=8.0": {
+    "W1_bear2026": {
+      "profit_pct": 4.5,
+      "pf": 2.33,
+      "dd_pct": 1.0,
+      "trades": 23,
+      "deep_losers": 4,
+      "trades_per_month": 3.79
+    },
+    "W2_bull2025": {
+      "profit_pct": 0.9,
+      "pf": 1.19,
+      "dd_pct": 2.0,
+      "trades": 21,
+      "deep_losers": 2,
+      "trades_per_month": 4.17
+    }
+  }
+}

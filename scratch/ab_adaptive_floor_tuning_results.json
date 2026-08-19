@@ -1,0 +1,50 @@
+{
+  "static_baseline": {
+    "W1_bear2026": {
+      "profit_pct": 0.1,
+      "pf": 1.02,
+      "dd_pct": 4.0,
+      "trades": 26,
+      "trades_per_month": 3.63
+    },
+    "W2_bull2025": {
+      "profit_pct": 3.7,
+      "pf": 1.89,
+      "dd_pct": 1.2,
+      "trades": 21,
+      "trades_per_month": 4.17
+    }
+  },
+  "staged_adaptive": {
+    "W1_bear2026": {
+      "profit_pct": 2.6,
+      "pf": 1.46,
+      "dd_pct": 2.4,
+      "trades": 24,
+      "trades_per_month": 3.35
+    },
+    "W2_bull2025": {
+      "profit_pct": 5.2,
+      "pf": 2.3,
+      "dd_pct": 1.2,
+      "trades": 21,
+      "trades_per_month": 4.17
+    }
+  },
+  "tuned_adaptive": {
+    "W1_bear2026": {
+      "profit_pct": -0.6,
+      "pf": 0.92,
+      "dd_pct": 3.7,
+      "trades": 31,
+      "trades_per_month": 4.32
+    },
+    "W2_bull2025": {
+      "profit_pct": 6.9,
+      "pf": 2.17,
+      "dd_pct": 1.6,
+      "trades": 28,
+      "trades_per_month": 5.57
+    }
+  }
+}

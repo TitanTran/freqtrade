@@ -1,0 +1,98 @@
+{
+  "mid_a_55_21d_17": {
+    "W1_bear2026": {
+      "profit_pct": 0.5,
+      "pf": 1.06,
+      "dd_pct": 3.3,
+      "trades": 29,
+      "trades_per_month": 4.04
+    },
+    "W2_bull2025": {
+      "profit_pct": 7.3,
+      "pf": 2.65,
+      "dd_pct": 1.2,
+      "trades": 24,
+      "trades_per_month": 4.77
+    }
+  },
+  "mid_b_50_21d_17": {
+    "W1_bear2026": {
+      "profit_pct": 0.5,
+      "pf": 1.06,
+      "dd_pct": 3.3,
+      "trades": 29,
+      "trades_per_month": 4.04
+    },
+    "W2_bull2025": {
+      "profit_pct": 7.7,
+      "pf": 2.73,
+      "dd_pct": 1.2,
+      "trades": 25,
+      "trades_per_month": 4.97
+    }
+  },
+  "mid_c_55_14d_17": {
+    "W1_bear2026": {
+      "profit_pct": -0.3,
+      "pf": 0.97,
+      "dd_pct": 3.7,
+      "trades": 31,
+      "trades_per_month": 4.32
+    },
+    "W2_bull2025": {
+      "profit_pct": 6.0,
+      "pf": 2.09,
+      "dd_pct": 1.6,
+      "trades": 26,
+      "trades_per_month": 5.17
+    }
+  },
+  "mid_d_50_14d_17": {
+    "W1_bear2026": {
+      "profit_pct": -0.7,
+      "pf": 0.91,
+      "dd_pct": 3.8,
+      "trades": 31,
+      "trades_per_month": 4.32
+    },
+    "W2_bull2025": {
+      "profit_pct": 6.0,
+      "pf": 2.11,
+      "dd_pct": 1.6,
+      "trades": 26,
+      "trades_per_month": 5.17
+    }
+  },
+  "mid_e_45_21d_17": {
+    "W1_bear2026": {
+      "profit_pct": -0.0,
+      "pf": 0.99,
+      "dd_pct": 3.3,
+      "trades": 30,
+      "trades_per_month": 4.18
+    },
+    "W2_bull2025": {
+      "profit_pct": 6.4,
+      "pf": 2.22,
+      "dd_pct": 1.0,
+      "trades": 27,
+      "trades_per_month": 5.37
+    }
+  },
+  "mid_f_50_14d_14": {
+    "W1_bear2026": {
+      "profit_pct": -0.6,
+      "pf": 0.92,
+      "dd_pct": 3.8,
+      "trades": 31,
+      "trades_per_month": 4.32
+    },
+    "W2_bull2025": {
+      "profit_pct": 6.0,
+      "pf": 2.11,
+      "dd_pct": 1.6,
+      "trades": 26,
+      "trades_per_month": 5.17
+    }
+  }
+}

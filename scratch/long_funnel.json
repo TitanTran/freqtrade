@@ -1,0 +1,17 @@
+{
+  "ETH/USDT:USDT": {
+    "0_bars": 6821,
+    "1_trend_bullish_1d": 1512,
+    "2_macro_bullish_4h": 1472,
+    "3_long_bias(+rsi htf)": 1388,
+    "4_+regime_up_confirmed": 214,
+    "5_+above_vwap": 161,
+    "6_+rsi<62": 147,
+    "7_+vol>1.3": 33,
+    "8_+macd_rising": 14,
+    "9_+side_long_ok(4H)": 6,
+    "_regime_up_raw": 371,
+    "_regime_up_confirmed_raw": 252,
+    "_adx_4h>25": 3490
+  }
+}

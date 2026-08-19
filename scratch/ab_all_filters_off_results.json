@@ -1,0 +1,56 @@
+{
+  "current": {
+    "W1_bear2026": {
+      "profit_pct": 4.5,
+      "pf": 2.33,
+      "dd_pct": 1.0,
+      "trades": 23,
+      "deep_losers": 4,
+      "trades_per_month": 3.79
+    },
+    "W2_bull2025": {
+      "profit_pct": 0.9,
+      "pf": 1.19,
+      "dd_pct": 2.0,
+      "trades": 21,
+      "deep_losers": 2,
+      "trades_per_month": 4.17
+    }
+  },
+  "all_off_retest": {
+    "W1_bear2026": {
+      "profit_pct": 2.6,
+      "pf": 1.33,
+      "dd_pct": 1.9,
+      "trades": 39,
+      "deep_losers": 9,
+      "trades_per_month": 6.43
+    },
+    "W2_bull2025": {
+      "profit_pct": -0.4,
+      "pf": 0.94,
+      "dd_pct": 2.8,
+      "trades": 25,
+      "deep_losers": 5,
+      "trades_per_month": 4.97
+    }
+  },
+  "all_off_chase": {
+    "W1_bear2026": {
+      "profit_pct": 2.4,
+      "pf": 1.31,
+      "dd_pct": 2.3,
+      "trades": 40,
+      "deep_losers": 9,
+      "trades_per_month": 6.59
+    },
+    "W2_bull2025": {
+      "profit_pct": -0.8,
+      "pf": 0.88,
+      "dd_pct": 2.7,
+      "trades": 26,
+      "deep_losers": 6,
+      "trades_per_month": 5.17
+    }
+  }
+}
